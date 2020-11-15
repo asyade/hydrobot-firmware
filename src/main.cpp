@@ -5,29 +5,28 @@
 
 #define SETTINGS_MAGIC 0x4243
 #define TDS_SAMPLE_INTERVAL 100
+#define PH_SAMPLE_INTERVAL 100
 #define TDS_1_PIN 11
-#define TDS_2_PIN 12
+#define PH_1_PIN 9
 
 #define WATER_VALVE_STEPPER_PIN_STEP 60
 #define WATER_VALVE_STEPPER_PIN_DIR 61
 #define WATER_VALE_STEPPER_SW 56
 #define WATER_VALE_STEPPER_STEPS 200
 // Number of steps to open/close the valve
-#define WATER_VALVE_DELTA 3000
+#define WATER_VALVE_DELTA 1900
+
+#define BRASS_PUMP_IN_PIN 8
+#define BRASS_PUMP_OUT_PIN 7
+#define BRONCHUS_CAPACITY 50//50cl
+#define BRASS_PUMP_IN_FLOW_RATE 8400 // 8400 cl/h
+#define BRASS_PUMP_OUT_FLOW_RATE  84000
 
 #define PPUMP_1_STEPPER_PIN_STEP 36
 #define PPUMP_1_STEPPER_PIN_DIR 34
 #define PPUMP_1_STEPPER_SW 30
 #define PPUMP_1_STEPPER_STEPS 200
 
-#define STATUS_OPENED 1
-#define STATUS_OPENING 2
-#define STATUS_CLOSING 3
-#define STATUS_CLOSED 0
-
-#define STATUS_ON   4
-#define STATUS_OFF  5
-#define STATUS_REV  6
 
 #define STATUS_UNKNOWN -1
 #define RES_OK(msg) Serial.println("OK " msg)
@@ -36,27 +35,49 @@
 #define COMMAND_BUFFER_SIZE 64
 #define TDS_FILTER_WEIGHT 5
 
-const char *cmd_separator = " ";
+#define CMD_SEPARATOR " "
+
+#define HEALT_CHECK_INTERVAL 1000
+
+#define S_TDS_1_CONNECTED      ((1 << 0))
+#define S_PH_1_CONNECTED       ((1 << 2))
+#define S_OSMOS_SWITCH_OPENED  ((1 << 3))
+#define S_OSMOS_SWITCH_OPENING ((1 << 4))
+#define S_OSMOS_SWITCH_CLOSING ((1 << 5))
+#define S_OSMOS_SWITCH_CLOSED  ((1 << 6))
+#define S_PERISTALIC_PUMP_ON   ((1 << 7))
+#define S_PERISTALIC_PUMP_REV  ((1 << 8))
+#define S_BRASS_PUMP_IN_ON     ((1 << 9))
+#define S_BRASS_PUMP_OUT_ON    ((1 << 10))
+#define S_BRONCHUS_FULL        ((1 << 11))
+
+
+#define M_OSMOS_SWITCH_BUSY ((S_OSMOS_SWITCH_OPENING | S_OSMOS_SWITCH_CLOSING))
+
+unsigned int status = S_OSMOS_SWITCH_CLOSING;
 
 Stepper valve_stepper(WATER_VALE_STEPPER_STEPS, WATER_VALVE_STEPPER_PIN_STEP, WATER_VALVE_STEPPER_PIN_DIR);
 Stepper ppump_1_stepper(PPUMP_1_STEPPER_STEPS, PPUMP_1_STEPPER_PIN_STEP, PPUMP_1_STEPPER_PIN_DIR);
 
-char ppump_1_status = STATUS_OFF;
-char water_valve_status = STATUS_CLOSING;
 int water_valve_current_angle = -WATER_VALVE_DELTA;
 
 char command_buffer[COMMAND_BUFFER_SIZE];
 int command_buffer_idx = 0;
 
 ExponentialFilter<long> tds_1_filter(TDS_FILTER_WEIGHT, 1);
-ExponentialFilter<long> tds_2_filter(TDS_FILTER_WEIGHT, 1);
-long tds_1_raw, tds_2_raw;
-unsigned long int last_update = millis();
+long tds_1_raw;
+
+ExponentialFilter<long> ph_1_filter(TDS_FILTER_WEIGHT, 1);
+long ph_1_raw;
+
+
+
+unsigned long int last_tds_update = millis();
+unsigned long int last_ph_update = millis();
 
 typedef struct  s_settings
 {
-  int         tds_1_map[2];
-  int         tds_2_map[2];
+  int           tds_1_map[2];
   int           magic;
 }               t_settings;
 
@@ -64,10 +85,8 @@ t_settings settings;
 
 void set_default() {
   settings.magic = SETTINGS_MAGIC;
-  settings.tds_1_map[0]    = 500;
-  settings.tds_1_map[1]    = 2000;
-  settings.tds_2_map[0]    = 500;
-  settings.tds_2_map[1]    = 2000;
+  settings.tds_1_map[0]    = 538;
+  settings.tds_1_map[1]    = 127;
   EEPROM.put(0, settings);
 }
 
@@ -78,31 +97,25 @@ inline void M0() {
 }
 
 void echo_tds_cal() {
-  Serial.print("TDS1 ");
+  Serial.print(" TDS1 ");
   Serial.print(settings.tds_1_map[0]);
   Serial.print(" ");
   Serial.print(settings.tds_1_map[1]);
-  Serial.print(" TDS2 ");
-  Serial.print(settings.tds_2_map[0]);
-  Serial.print(" ");
-  Serial.println(settings.tds_2_map[1]);
+  Serial.println();
 }
 
 // Set tds calibration value
 inline void M1() {
   char *token;
   int calibration_value[2];
-  while ((token = strtok(NULL, cmd_separator)) != NULL) {
-    calibration_value[0] = atoi(strtok(NULL, cmd_separator));
-    calibration_value[1] = atoi(strtok(NULL, cmd_separator));
+  while ((token = strtok(NULL, CMD_SEPARATOR)) != NULL) {
+    calibration_value[0] = atoi(strtok(NULL, CMD_SEPARATOR));
+    calibration_value[1] = atoi(strtok(NULL, CMD_SEPARATOR));
     if (token == NULL) {
       RES_ERR("BAD_REQUEST");
     } else if (strncasecmp(token, "TDS1", 4) == 0) {
       settings.tds_1_map[0] = calibration_value[0];
       settings.tds_1_map[1] = calibration_value[1];
-    } else if (strncasecmp(token, "TDS2", 4) == 0) {
-      settings.tds_2_map[0] = calibration_value[0];
-      settings.tds_2_map[1] = calibration_value[1];
     }
   }
   EEPROM.put(0, settings);
@@ -118,68 +131,75 @@ inline void M2() {
 
 // Read raw sensore values
 inline void G0() {
-  Serial.print("OK G0 TDS1 ");
+  Serial.print("OK G0");
+  Serial.print(" TDS1 ");
   Serial.print(tds_1_raw);
-  Serial.print(" TDS2 ");
-  Serial.println(tds_2_raw);
+  Serial.println();
 }
 
-// Read filtred sensore values
+#define RES2 857.39 //TODO check that const match with our sensor
+#define ECREF 255.86
+#define VREF 5.0 
+
+inline float read_ec(float analog, float temperature) {
+  float voltage = analog * (float)VREF/ 1024.0;
+  float compensationCoefficient=1.0+0.02*(temperature-25.0); //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
+  float compensationVolatge=voltage/compensationCoefficient; //temperature compensation
+  float tdsValue=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - ECREF*compensationVolatge*compensationVolatge + RES2*compensationVolatge)*0.5; //convert voltage value to tds value
+//Serial.print("voltage:");
+//Serial.print(averageVoltage,2);
+//Serial.print("V ");
+  return tdsValue;
+}
+
+inline float read_ph(float ph, float temperature) {
+  return (float)ph / 100.0;
+}
+
+// Read filtred sensore values & status
 inline void G1() {
-  Serial.print("OK G1 TDS1 ");
-  Serial.print(tds_1_filter.Current());
-  Serial.print(" TDS2 ");
-  Serial.println(tds_2_filter.Current());
+  Serial.print("OK G1");
+  Serial.print(" TDS1 ");
+  Serial.print(read_ec(tds_1_filter.Current(), 25));
+  Serial.print(" PH1 ");
+  Serial.print(read_ph(ph_1_filter.Current(), 25));
+  Serial.print(" STATUS ");
+  Serial.print(status);
+  Serial.println();
 }
 
 // Controle water valve status
 inline void S0() {
-  char *command = strtok(NULL, cmd_separator);
+  char *command = strtok(NULL, CMD_SEPARATOR);
   if (command != NULL) {
-    if (strcasecmp(command, "OPEN") == 0) {
-      switch (water_valve_status)
-      {
-      case STATUS_OPENED:
-      case STATUS_OPENING:
-      case STATUS_CLOSING:
-        RES_ERR("S0 BUSY");
-        break;
-      case STATUS_CLOSED:
-        water_valve_status = STATUS_OPENING;
-        RES_OK("S0 PENDING");
-        break;
-      }
-    } else if (strcasecmp(command, "CLOSE") == 0) {
-      switch (water_valve_status)
-      {
-      case STATUS_CLOSED:
-      case STATUS_OPENING:
-      case STATUS_CLOSING:
-        RES_ERR("S0 BUSY");
-        break;
-      case STATUS_OPENED:
-        water_valve_status = STATUS_CLOSING;
-        RES_OK("S0 PENDING");
-        break;
-      }
+    if (status & M_OSMOS_SWITCH_BUSY) {
+      RES_ERR("S0 BUSY");
+    } else if (strncasecmp(command, "ON", 2) == 0) {
+      status |= S_OSMOS_SWITCH_OPENING;
+      status &= ~(S_OSMOS_SWITCH_OPENED | S_OSMOS_SWITCH_CLOSED);
+    } else if (strncasecmp(command, "OFF", 3) == 0) {
+      status |= S_OSMOS_SWITCH_CLOSING;
+      status &= ~(S_OSMOS_SWITCH_OPENED | S_OSMOS_SWITCH_CLOSED);
     } else {
-        RES_ERR("S0 BAD_REQUEST");
+      RES_ERR("S0 BAD_REQUEST");
     }
   }
 }
 
 // Controle peristatic pump status
 inline void S1() {
-  char *command = strtok(NULL, cmd_separator);
+  char *command = strtok(NULL, CMD_SEPARATOR);
   if (command != NULL) {
     if (strncasecmp(command, "ON", 2) == 0) {
-      ppump_1_status = STATUS_ON;
+      status |= S_PERISTALIC_PUMP_ON;
+      status &= ~S_PERISTALIC_PUMP_REV;
       RES_OK("S1 ON");
     } else if (strncasecmp(command, "OFF", 3) == 0) {
-      ppump_1_status = STATUS_OFF;
+      status &= ~(S_PERISTALIC_PUMP_ON | S_PERISTALIC_PUMP_REV);
       RES_OK("S1 OFF");
     } else if (strncasecmp(command, "REV", 3) == 0) {
-      ppump_1_status = STATUS_REV;
+      status |= S_PERISTALIC_PUMP_REV;
+      status &= ~S_PERISTALIC_PUMP_ON;
       RES_OK("S1 REV");
     } else {
         RES_ERR("S1 BAD_REQUEST");
@@ -187,11 +207,53 @@ inline void S1() {
   }
 }
 
+inline void S2() {
+  char *command = strtok(NULL, CMD_SEPARATOR);
+  if (command != NULL) {
+    if (strncasecmp(command, "ON", 2) == 0) {
+      status |= S_BRASS_PUMP_IN_ON;
+      digitalWrite(BRASS_PUMP_IN_PIN, HIGH);
+      RES_OK("S2 ON");
+    } else if (strncasecmp(command, "OFF", 3) == 0) {
+      digitalWrite(BRASS_PUMP_IN_PIN, LOW);
+      status &= ~S_BRASS_PUMP_IN_ON;
+      RES_OK("S2 OFF");
+    } else {
+        RES_ERR("S2 BAD_REQUEST");
+    }
+  }
+}
+
+
+inline void S3() {
+  char *command = strtok(NULL, CMD_SEPARATOR);
+  if (command != NULL) {
+    if (strncasecmp(command, "ON", 2) == 0) {
+      status |= S_BRASS_PUMP_OUT_ON;
+      digitalWrite(BRASS_PUMP_OUT_PIN, HIGH);
+      RES_OK("S3 ON");
+    } else if (strncasecmp(command, "OFF", 3) == 0) {
+      digitalWrite(BRASS_PUMP_OUT_PIN, LOW);
+      status &= ~S_BRASS_PUMP_OUT_ON;
+      RES_OK("S3 OFF");
+    } else {
+        RES_ERR("S3 BAD_REQUEST");
+    }
+  }
+}
+
+
+
 void setup() {
   Serial.begin(9600);
   pinMode(TDS_1_PIN, INPUT);
+  pinMode(PH_1_PIN, INPUT);
   pinMode(WATER_VALE_STEPPER_SW, OUTPUT);
   pinMode(PPUMP_1_STEPPER_SW, OUTPUT);
+  pinMode(BRASS_PUMP_OUT_PIN, OUTPUT);
+  pinMode(BRASS_PUMP_IN_PIN, OUTPUT);
+  digitalWrite(BRASS_PUMP_IN_PIN, LOW);
+  digitalWrite(BRASS_PUMP_OUT_PIN, LOW);
   digitalWrite(WATER_VALE_STEPPER_SW, HIGH);
   digitalWrite(PPUMP_1_STEPPER_SW, HIGH);
   ppump_1_stepper.setSpeed(1000);
@@ -218,7 +280,7 @@ void loop() {
   // Check for command into the buffer
   if (command_buffer_idx > 0 && command_buffer[command_buffer_idx - 1] == '\n') {
     command_buffer[command_buffer_idx - 1] = '\0';
-    char *command = strtok(command_buffer, cmd_separator);
+    char *command = strtok(command_buffer, CMD_SEPARATOR);
     // Load default settings
     if (command == NULL)
       Serial.println("PROCESS ERROR EMPTY COMMAND");
@@ -227,6 +289,8 @@ void loop() {
     else if (strncasecmp(command, "M2", 2) == 0)    M2();
     else if (strncasecmp(command, "S0", 2) == 0)    S0();
     else if (strncasecmp(command, "S1", 2) == 0)    S1();
+    else if (strncasecmp(command, "S2", 2) == 0)    S2();
+    else if (strncasecmp(command, "S3", 3) == 0)    S3();
     else if (strncasecmp(command, "G0", 2) == 0)    G0();
     else if (strncasecmp(command, "G1", 2) == 0)    G1();
     else {
@@ -237,46 +301,61 @@ void loop() {
     command_buffer_idx = 0;
   }
   // Water valve status/stepper update
-  if (water_valve_status == STATUS_CLOSING) {
+  if (status & S_OSMOS_SWITCH_CLOSING) {
     digitalWrite(WATER_VALE_STEPPER_SW, LOW);
     if (water_valve_current_angle < WATER_VALVE_DELTA) {
       valve_stepper.step(1);
       water_valve_current_angle += 1;
     } else {
-      RES_OK("S0 DONE CLOSE");
-      water_valve_status = STATUS_CLOSED;
+      RES_OK("S0 OFF");
+      status |= S_OSMOS_SWITCH_CLOSED;
+      status &= ~(S_OSMOS_SWITCH_CLOSING);
     }
   }
-  else if (water_valve_status == STATUS_OPENING) {
+  else if (status & S_OSMOS_SWITCH_OPENING) {
     digitalWrite(WATER_VALE_STEPPER_SW, LOW);
     if (water_valve_current_angle > -WATER_VALVE_DELTA) {
       valve_stepper.step(-1);
       water_valve_current_angle -= 1;
     } else {
-      RES_OK("S0 DONE OPEN");
-      water_valve_status = STATUS_OPENED;
+      RES_OK("S0 ON");
+      status |= S_OSMOS_SWITCH_OPENED;
+      status &= ~(S_OSMOS_SWITCH_OPENING);
     }
   } else {
     digitalWrite(WATER_VALE_STEPPER_SW, HIGH);
   }
   // Peristatic pump stepper update
-  if (ppump_1_status == STATUS_OFF) {
-    digitalWrite(PPUMP_1_STEPPER_SW, HIGH);
-  } else {
+  if (status & S_PERISTALIC_PUMP_ON) {
     digitalWrite(PPUMP_1_STEPPER_SW, LOW);
-    ppump_1_stepper.step(ppump_1_status == STATUS_ON ? 1 : -1);
+    ppump_1_stepper.step(1);
+  } else if (status & S_PERISTALIC_PUMP_REV) {
+    digitalWrite(PPUMP_1_STEPPER_SW, LOW);
+    ppump_1_stepper.step(-1);
+  } else {
+    digitalWrite(PPUMP_1_STEPPER_SW, HIGH);
   }
   // Tds update
-  if (last_update - millis() >= TDS_SAMPLE_INTERVAL) {
-    last_update = millis();
+  if (last_tds_update - millis() >= TDS_SAMPLE_INTERVAL) {
+    last_tds_update = millis();
     tds_1_raw = analogRead(TDS_1_PIN);
-    tds_2_raw = analogRead(TDS_2_PIN);
-    tds_1_filter.Filter(map(tds_1_raw, 0, settings.tds_1_map[0], 0, settings.tds_1_map[1]));
-    tds_2_filter.Filter(map(tds_2_raw, 0, settings.tds_2_map[0], 0, settings.tds_2_map[1]));
-    // Serial.print(tds_1_filter.Current());
-    // Serial.print(" ");
-    // Serial.print(tds_2_filter.Current());
-    // Serial.println();
+    tds_1_filter.Filter(tds_1_raw);
+    if (tds_1_raw == 0) {
+      status &= ~S_TDS_1_CONNECTED;
+    } else {
+      status |= S_TDS_1_CONNECTED;
+    }
   }
-
+  if (last_ph_update - millis() >= PH_SAMPLE_INTERVAL) {
+    last_ph_update = millis();
+    ph_1_raw = 1023 - analogRead(PH_1_PIN);
+    ph_1_filter.Filter(map(ph_1_raw, 0, 1024, 0, 1400));
+    if (ph_1_raw == 0) {
+      status &= ~S_PH_1_CONNECTED;
+    } else {
+      status |= S_PH_1_CONNECTED;
+    }
+  }
+  // Ph update
+  
 }
