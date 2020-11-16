@@ -11,17 +11,20 @@ pub struct SerialDaemon {
 
 bitflags! {
     pub struct Status: u32 {
-        const NONE                 = 0;
-        const TDS_1_CONNECTED      = ((1 << 0));
-        const TDS_2_CONNECTED      = ((1 << 1));
-        const PH_1_CONNECTED       = ((1 << 2));
-        const OSMOS_SWITCH_OPENED  = ((1 << 3));
-        const OSMOS_SWITCH_OPENING = ((1 << 4));
-        const OSMOS_SWITCH_CLOSING = ((1 << 5));
-        const OSMOS_SWITCH_CLOSED  = ((1 << 6));
-        const PERISTALIC_PUMP_ON   = ((1 << 7));
-        const PERISTALIC_PUMP_REV  = ((1 << 8));
-        const BRASS_PUMP_ON        = ((1 << 9));
+        const NONE                          = 0;
+        const TDS_CONNECTED               = ((1 << 0));
+        const TDS_2_CONNECTED               = ((1 << 1));
+        const PH_CONNECTED                = ((1 << 2));
+        const OSMOS_SWITCH_OPENED           = ((1 << 3));
+        const OSMOS_SWITCH_OPENING          = ((1 << 4));
+        const OSMOS_SWITCH_CLOSING          = ((1 << 5));
+        const OSMOS_SWITCH_CLOSED           = ((1 << 6));
+        const PERISTALIC_PUMP_ON            = ((1 << 7));
+        const PERISTALIC_PUMP_REV           = ((1 << 8));
+        const BRONCHUS_STANDBY_FULL         = ((1 << 9));
+        const BRONCHUS_STANDBY_SAMPLING     = ((1 << 10));
+        const BRONCHUS_WAIT_FULL            = ((1 << 11));
+        const BRONCHUS_WAIT_EMPTY           = ((1 << 12));
     }
 }
 
@@ -71,20 +74,17 @@ pub struct SerialDaemonHandle {
 pub enum SerialCommandResult {
     G0 {
         tds_1: Option<f64>,
-        tds_2: Option<f64>,
+        ph_1: Option<f64>,
     },
     G1 {
         tds_1: Option<f64>,
-        tds_2: Option<f64>,
+        ph_1: Option<f64>,
         status: Option<Status>,
     },
     S0 {
         on: Option<bool>,
     },
     S1 {
-        on: Option<bool>,
-    },
-    S2 {
         on: Option<bool>,
     },
     Unknown {
@@ -105,21 +105,17 @@ impl SerialCommandResult {
                 let on: Option<bool> = parts.next().map(|e| e.trim().eq("ON"));
                 Some((SerialCommandResult::S1 { on }, success))
             },
-            "S2" => {
-                let on: Option<bool> = parts.next().map(|e| e.trim().eq("ON"));
-                Some((SerialCommandResult::S2 { on }, success))
-            },
             "G1" => {
                 let mut tds_1: Option<f64> = None;
-                let mut tds_2: Option<f64> = None;
+                let mut ph_1: Option<f64> = None;
                 let mut status: Option<Status> = None;
                 while let Some(part) = parts.next() {
                     match part.as_str() {
                         "TDS1" => {
                             tds_1 = Some(parts.next()?.parse().ok()?);
                         },
-                        "TDS2" => {
-                            tds_2 = Some(parts.next()?.parse().ok()?);
+                        "PH1" => {
+                            ph_1 = Some(parts.next()?.parse().ok()?);
                         },
                         "STATUS" => {
                             let raw_status: u32 = parts.next()?.parse().ok()?;
@@ -128,7 +124,7 @@ impl SerialCommandResult {
                         _ => None?
                     }
                 }
-                Some((SerialCommandResult::G1{ tds_1, tds_2, status }, success))
+                Some((SerialCommandResult::G1{ tds_1, ph_1, status }, success))
             },
             cmd => {
                 warn!("Unknown command: {:?}", cmd);
@@ -146,9 +142,6 @@ pub enum SerialCommand {
     S0 {
         on: bool,
     },
-    S2 {
-        on: bool,
-    }
 }
 
 impl Display for SerialCommand {
@@ -157,7 +150,6 @@ impl Display for SerialCommand {
             SerialCommand::G0 => write!(f, "G0"),
             SerialCommand::G1 => write!(f, "G1"),
             SerialCommand::S0 { on} => write!(f, "S0 {}", if *on {"ON"} else {"OFF"}),
-            SerialCommand::S2 { on} => write!(f, "S2 {}", if *on {"ON"} else {"OFF"})
         }
     }
 }

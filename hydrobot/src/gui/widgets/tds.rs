@@ -26,15 +26,15 @@ impl SelectableWidget for TdsWidget {
     fn render(& self, app: &App, frame: &mut Fram, area: Rect) {
         let datasets = vec![
             Dataset::default()
-                .name("TDS 1")
+                .name("TDS")
                 .marker(symbols::Marker::Dot)
-                .data(&app.tds_1_buffer_trunc),
+                .data(&app.tds_buffer_trunc),
         ];
-        let x_labels = if app.status.contains(Status::TDS_1_CONNECTED) {
+        let x_labels = if app.status.contains(Status::TDS_CONNECTED) {
             vec![
                 Span::raw("Current : "),
                 Span::styled(
-                    format!("{}PPM", app.tds_1),
+                    format!("{}PPM", app.tds),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(format!("{}", "Target : ")),
@@ -52,13 +52,15 @@ impl SelectableWidget for TdsWidget {
                 ),
             ]
         };
-        let min = app.tds_1_buffer_trunc.first().unwrap_or(&(0.0, 0.0));
-        let max = app.tds_1_buffer_trunc.last().unwrap_or(&(0.0, 0.0));
+        let time_min = app.tds_buffer_trunc.first().map(|(e, _)| *e).unwrap_or(0.0);
+        let time_max = app.tds_buffer_trunc.last().map(|(e, _)| *e).unwrap_or(0.0);
+        let val_max = app.tds_buffer_trunc.iter().map(|(_, v)| (v * 100.0).round() as u64).max().unwrap_or(0) as f64 / 100.0;
+        let val_min = app.tds_buffer_trunc.iter().map(|(_, v)| (v * 100.0).round() as u64).min().unwrap_or(0) as f64 / 100.0;
         let chart = Chart::new(datasets)
             .block(
                 Block::default()
                     .title(Span::styled(
-                        "TDS 1",
+                        "TDS",
                         Style::default()
                             .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),
@@ -71,17 +73,17 @@ impl SelectableWidget for TdsWidget {
                     .title("")
                     .style(Style::default().fg(Color::Gray))
                     .labels(x_labels)
-                    .bounds([min.0, max.0])
+                    .bounds([time_min, time_max])
             )
             .y_axis(
                 Axis::default()
                     .title("")
                     .style(Style::default().fg(Color::Gray))
                     .labels(vec![
-                        Span::styled(format!("{}PPM", min.1), Style::default().add_modifier(Modifier::BOLD)),
-                        Span::styled(format!("{}PPM", max.1), Style::default().add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("{}PPM", val_min), Style::default().add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("{}PPM", val_max), Style::default().add_modifier(Modifier::BOLD)),
                     ])
-                    .bounds([min.1, max.1])
+                    .bounds([val_min, val_max])
             );
         frame.render_widget(chart, area)
     }

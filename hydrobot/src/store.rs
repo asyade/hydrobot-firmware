@@ -9,7 +9,16 @@ const SETTING_OSMOSEUR_PULSE_DURATION: &str = "osmoseur_pulse_duration";
 const SETTING_OSMOSEUR_PULSE_DURATION_DEFAULT: u64 = 10; //10 secs
 
 const SETTING_OSMOSEUR_PULSE_MIN_INTERVAL: &str = "osmoseur_pulse_min_interval";
-const SETTING_OSMOSEUR_PULSE_MIN_INTERVAL_DEFAULT: u64 = 20; //10 secs
+const SETTING_OSMOSEUR_PULSE_MIN_INTERVAL_DEFAULT: u64 = 240; //10 secs
+
+const SETTING_PH_1: &str = "ph_1_thresh";
+const SETTING_PH_1_DEFAULT: f64 = 7.0;
+
+const SETTING_PH_PULSE_DURATION: &str = "ph_pulse_duration";
+const SETTING_PH_PULSE_DURATION_DEFAULT: u64 = 10; //10 secs
+
+const SETTING_PH_PULSE_MIN_INTERVAL: &str = "ph_pulse_min_interval";
+const SETTING_PH_PULSE_MIN_INTERVAL_DEFAULT: u64 = 240; //10 secs
 
 
 #[derive(Clone)]
@@ -78,25 +87,39 @@ impl Store {
     pub fn set_tds_1_thresh(&self, val: f64) {
         self.put_setting_f64(SETTING_TDS_1, val)
     }
-
     pub fn get_tds_1_thresh(&self) -> f64 {
         self.get_setting_f64(SETTING_TDS_1, SETTING_TDS_1_DEFAULT)
     }
-
     pub fn set_osmoseur_pulse_duration(&self, val: Duration ) {
         self.put_setting_u64(SETTING_OSMOSEUR_PULSE_DURATION, val.as_secs())
     }
-
     pub fn get_osmoseur_pulse_duration(&self) -> Duration {
         Duration::from_secs(self.get_setting_u64(SETTING_OSMOSEUR_PULSE_DURATION, SETTING_OSMOSEUR_PULSE_DURATION_DEFAULT))
     }
-
     pub fn set_osmoseur_pulse_min_interval(&self, val: Duration ) {
         self.put_setting_u64(SETTING_OSMOSEUR_PULSE_MIN_INTERVAL, val.as_secs())
     }
-
     pub fn get_osmoseur_pulse_min_interval(&self) -> Duration {
         Duration::from_secs(self.get_setting_u64(SETTING_OSMOSEUR_PULSE_MIN_INTERVAL, SETTING_OSMOSEUR_PULSE_MIN_INTERVAL_DEFAULT))
+    }
+
+    pub fn set_ph_1_thresh(&self, val: f64) {
+        self.put_setting_f64(SETTING_PH_1, val)
+    }
+    pub fn get_ph_1_thresh(&self) -> f64 {
+        self.get_setting_f64(SETTING_PH_1, SETTING_PH_1_DEFAULT)
+    }
+    pub fn set_ph_pulse_duration(&self, val: Duration ) {
+        self.put_setting_u64(SETTING_PH_PULSE_DURATION, val.as_secs())
+    }
+    pub fn get_ph_pulse_duration(&self) -> Duration {
+        Duration::from_secs(self.get_setting_u64(SETTING_PH_PULSE_DURATION, SETTING_PH_PULSE_DURATION_DEFAULT))
+    }
+    pub fn set_ph_pulse_min_interval(&self, val: Duration ) {
+        self.put_setting_u64(SETTING_PH_PULSE_MIN_INTERVAL, val.as_secs())
+    }
+    pub fn get_ph_pulse_min_interval(&self) -> Duration {
+        Duration::from_secs(self.get_setting_u64(SETTING_PH_PULSE_MIN_INTERVAL, SETTING_PH_PULSE_MIN_INTERVAL_DEFAULT))
     }
 
     pub fn insert_tds_1_metric(&self, when: SystemTime, sample: f64) {

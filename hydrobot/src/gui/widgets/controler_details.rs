@@ -43,7 +43,7 @@ impl ParamKind {
         }
     }
 
-    pub fn unwrap_bool(self) -> bool {
+    pub fn bool(self) -> bool {
         if let ParamKind::Boolean(f) = self {
             f
         } else {
@@ -120,52 +120,80 @@ impl ParamWidget {
     }
 }
 
+#[derive(Debug,Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum SettingCategorie {
+    General,
+    EcMonitor,
+    PhMonitor,
+}
+
 pub struct ControlerDetailsWidget {
     selected:bool,
-    widgets: HashMap<Job, Vec<ParamWidget>>,
+    widgets: HashMap<SettingCategorie, Vec<ParamWidget>>,
 }
 
 impl ControlerDetailsWidget {
 
     pub fn new(store: &Store) -> Self {
         let mut widgets = HashMap::new();
-        widgets.insert(Job::Standby, vec![
-            ParamWidget::new("Osmoseur valve", ParamKind::Boolean(false)).can_edit(true),
-            ParamWidget::new("PH Down pump", ParamKind::Boolean(false)).can_edit(true),
+        widgets.insert(SettingCategorie::General, vec![
+            ParamWidget::new("EC Compensation", ParamKind::Boolean(false))
+                .can_edit(true)
+                .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
+                    app.scheduler.do_send(SchedulerRequest::SetEcMonitorEnabled { enabled: kind.bool() });
+                }))
+            ,
+            ParamWidget::new("PH Compensation", ParamKind::Boolean(false))
+                .can_edit(true)
+                .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
+                        app.scheduler.do_send(SchedulerRequest::SetPhMonitorEnabled { enabled: kind.bool() });
+                }))
         ]);
-        widgets.insert(Job::EcMonitor, vec![
+        widgets.insert(SettingCategorie::EcMonitor, vec![
             ParamWidget::new("Threshold", ParamKind::Float(store.get_tds_1_thresh()))
                 .postfix(Some("PPM"))
                 .can_edit(true)
-                .apply_ref(Box::from(|kind: &mut ParamKind, app: &App| { *kind.float_mut() = app.tds_1; }))
+                .apply_ref(Box::from(|kind: &mut ParamKind, app: &App| { *kind.float_mut() = app.tds; }))
                 .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
                         app.scheduler.do_send(SchedulerRequest::SetTdsThresh { thresh: kind.float() });
                 })
             ),
             ParamWidget::new("Osmoseur pulse duration", ParamKind::Duration(store.get_osmoseur_pulse_duration()))
                 .can_edit(true)
-                .apply_ref(Box::from(|kind: &mut ParamKind, app: &App| { *kind.float_mut() = app.tds_1; }))
                 .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
                    app.scheduler.do_send(SchedulerRequest::SetOsmoseurPulseDuration { duration: kind.duration() });
                 })
             ),
             ParamWidget::new("Osmoseur pulse interval", ParamKind::Duration(store.get_osmoseur_pulse_min_interval()))
                 .can_edit(true)
-                .apply_ref(Box::from(|kind: &mut ParamKind, app: &App| { *kind.float_mut() = app.tds_1; }))
                 .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
                    app.scheduler.do_send(SchedulerRequest::SetOsmoseurPulseMinInterval { interval: kind.duration() });
                 })
             ),
-            ParamWidget::new("Total water added", ParamKind::Int(0)).postfix(Some("M/L")),
+            ParamWidget::new("Total water added", ParamKind::Int(0)).postfix(Some("ML")),
         ]);
-        widgets.insert(Job::PhMonitor, vec![
-            ParamWidget::new("Threshold", ParamKind::Float(10000.0)).prefix(Some("PH")),
-            ParamWidget::new("Total Ph down added", ParamKind::Int(0)),
-        ]);
-        widgets.insert(Job::FullMonitor, vec![
-            ParamWidget::new("Threshold", ParamKind::Float(10000.0)).postfix(Some("PPM")).can_edit(true),
-            ParamWidget::new("Total Ph down added", ParamKind::Int(0)).postfix(Some("M/L")),
-            ParamWidget::new("Total water added", ParamKind::Int(0)).postfix(Some("M/L")),
+        widgets.insert(SettingCategorie::PhMonitor, vec![
+            ParamWidget::new("Threshold", ParamKind::Float(store.get_ph_1_thresh()))
+                .prefix(Some("PH"))
+                .can_edit(true)
+                .apply_ref(Box::from(|kind: &mut ParamKind, app: &App| { *kind.float_mut() = app.ph; }))
+                .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
+                        app.scheduler.do_send(SchedulerRequest::SetPhThresh { thresh: kind.float() });
+                })
+            ),
+            ParamWidget::new("PH Down pulse duration", ParamKind::Duration(store.get_ph_pulse_duration()))
+                .can_edit(true)
+                .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
+                   app.scheduler.do_send(SchedulerRequest::SetPhPulseDuration { duration: kind.duration() });
+                })
+            ),
+            ParamWidget::new("PH Down pulse interval", ParamKind::Duration(store.get_ph_pulse_min_interval()))
+                .can_edit(true)
+                .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
+                   app.scheduler.do_send(SchedulerRequest::SetPhPulseMinInterval { interval: kind.duration() });
+                })
+            ),
+            ParamWidget::new("Total PH Down added", ParamKind::Int(0)).postfix(Some("ML")),
         ]);
         Self{
             widgets,
@@ -176,12 +204,12 @@ impl ControlerDetailsWidget {
 
 impl SelectableWidget for ControlerDetailsWidget {
     fn render(&self, _app: &App, frame: &mut Fram, area: Rect) {
-        let items: Vec<ListItem> = self.widgets[&_app.job_kind].iter().map(|e| {
-            let mut item = ListItem::new(e.name.clone());
+        let items: Vec<ListItem> = self.widgets[&_app.selected_setting_categorie].iter().map(|e| {
+            let item = ListItem::new(e.name.clone());
             item
         }).collect();
 
-        let values: Vec<ListItem> = self.widgets[&_app.job_kind].iter().map(|e| {
+        let values: Vec<ListItem> = self.widgets[&_app.selected_setting_categorie].iter().map(|e| {
             let value = match e.kind {
                 ParamKind::Boolean(e) => format!("{}", e),
                 ParamKind::Duration(e) => format!("{:?}", e),
@@ -220,7 +248,7 @@ impl SelectableWidget for ControlerDetailsWidget {
     }
 
     fn on_key(&mut self, key: Key, app: &mut App) {
-        let current_list = self.widgets.get_mut(&app.job_kind).unwrap();
+        let current_list = self.widgets.get_mut(&app.selected_setting_categorie).unwrap();
         let current_selection = current_list.iter_mut().enumerate().find(|(_, e)| e.status != ParamStatus::None);
         match (key, current_selection) {
             (Key::Insert, Some((_, selection))) if selection.can_edit => selection.status = match selection.status {
@@ -252,19 +280,19 @@ impl SelectableWidget for ControlerDetailsWidget {
                     current_list.last_mut().unwrap().status = ParamStatus::Selected;
                 }
             },
-            (Key::Down, Some((idx, selection))) => match selection.kind {
+            (Key::Down, Some((_idx, selection))) => match selection.kind {
                 ParamKind::Boolean(ref mut value) => *value = !*value,
                 ParamKind::Float(ref mut value) => *value = *value - 1.0,
                 ParamKind::Duration(ref mut value) => *value = Duration::from_secs(value.as_secs() - 1),
                 _ => {},
             },
-            (Key::Up, Some((idx, selection))) => match selection.kind {
+            (Key::Up, Some((_idx, selection))) => match selection.kind {
                 ParamKind::Boolean(ref mut value) => *value = !*value,
                 ParamKind::Float(ref mut value) => *value = *value + 1.0,
                 ParamKind::Duration(ref mut value) => *value = Duration::from_secs(value.as_secs() + 1),
                 _ => {},
             },
-            (Key::Char('r'), Some((idx, selection))) if selection.status.is_editing() && selection.apply_ref.is_some() => selection.apply_ref.as_mut().unwrap()(&mut selection.kind, app),
+            (Key::Char('r'), Some((_idx, selection))) if selection.status.is_editing() && selection.apply_ref.is_some() => selection.apply_ref.as_mut().unwrap()(&mut selection.kind, app),
             (Key::Up, None) => current_list[0].status = ParamStatus::Selected,
             (Key::Down, None) => current_list[0].status = ParamStatus::Selected,
             _ => {},

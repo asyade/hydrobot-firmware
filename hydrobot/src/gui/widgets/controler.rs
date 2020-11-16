@@ -10,7 +10,7 @@ use super::super::*;
 
 pub struct ControlerWidget {
     selected:bool,
-    sub: Vec<(&'static str, bool, Job)>,
+    sub: Vec<(&'static str, bool, SettingCategorie)>,
     sub_selection: usize,
 }
 
@@ -20,10 +20,9 @@ impl ControlerWidget {
             sub_selection: 0,
             selected: true,
             sub: vec![
-                ("Standby", true, Job::Standby),
-                ("EC Monitoring", false, Job::EcMonitor),
-                ("PH Monitoring", false, Job::PhMonitor),
-                ("PH+EC Monitoring", false, Job::FullMonitor),
+                ("General", true, SettingCategorie::General),
+                ("EC Monitoring", false, SettingCategorie::EcMonitor),
+                ("PH Monitoring", false, SettingCategorie::PhMonitor),
             ],
         }
     }
@@ -54,7 +53,7 @@ impl SelectableWidget for ControlerWidget {
                     self.sub_selection = 0;
                 }
                 self.sub[self.sub_selection].1 = true;
-                app.set_job_kind(self.sub[self.sub_selection].2);
+                app.selected_setting_categorie = self.sub[self.sub_selection].2;
             },
             Key::Up => {
                 self.sub[self.sub_selection].1 = false;
@@ -64,7 +63,7 @@ impl SelectableWidget for ControlerWidget {
                     self.sub_selection = self.sub.len() - 1;
                 }
                 self.sub[self.sub_selection].1 = true;
-                app.set_job_kind(self.sub[self.sub_selection].2);
+                app.selected_setting_categorie = self.sub[self.sub_selection].2;
             },
             _ => {},
         }

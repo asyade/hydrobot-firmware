@@ -22,29 +22,47 @@ impl PhWidget {
 
 impl SelectableWidget for PhWidget {
 
-    fn render(& self, _app: &App, frame: &mut Fram, area: Rect) {
+    fn render(& self, app: &App, frame: &mut Fram, area: Rect) {
         let datasets = vec![
             Dataset::default()
-                .name("PH 1")
+                .name("PH")
                 .marker(symbols::Marker::Dot)
-                .data(&[]),
+                .data(&app.ph_buffer_trunc),
         ];
-        let x_labels =  vec![
-            Span::raw(""),
-            Span::styled(
-                "Probe not connected !",
-                Style::default().fg(Color::Red)
-            ),
-        ];
-        let min = &(0.0, 0.0);
-        let max = &(0.0, 0.0);
+        let x_labels = if app.status.contains(Status::PH_CONNECTED) {
+            vec![
+                Span::raw("Current : "),
+                Span::styled(
+                    format!("PH {}", app.ph),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(format!("{}", "Target : ")),
+                Span::styled(
+                    format!("<>"),
+                    Style::default().add_modifier(Modifier::BOLD).bg(if self.selected { Color::White} else { Color:: Black })
+                ),
+            ]
+        } else {
+            vec![
+                Span::raw(""),
+                Span::styled(
+                    "Probe not connected !",
+                    Style::default().fg(Color::Red)
+                ),
+            ]
+        };
+        let time_min = app.ph_buffer_trunc.first().map(|(e, _)| *e).unwrap_or(0.0);
+        let time_max = app.ph_buffer_trunc.last().map(|(e, _)| *e).unwrap_or(0.0);
+        let val_max = app.ph_buffer_trunc.iter().map(|(_, v)| (v * 100.0).round() as u64).max().unwrap_or(0) as f64 / 100.0;
+        let val_min = app.ph_buffer_trunc.iter().map(|(_, v)| (v * 100.0).round() as u64).min().unwrap_or(0) as f64 / 100.0;
         let chart = Chart::new(datasets)
             .block(
                 Block::default()
                     .title(Span::styled(
-                        "PH 1",
+                        "PH",
                         Style::default()
                             .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
                     ))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(if self.selected {Color::White} else {Color::DarkGray})),
@@ -54,17 +72,17 @@ impl SelectableWidget for PhWidget {
                     .title("")
                     .style(Style::default().fg(Color::Gray))
                     .labels(x_labels)
-                    .bounds([min.0, max.0])
+                    .bounds([time_min, time_max])
             )
             .y_axis(
                 Axis::default()
                     .title("")
                     .style(Style::default().fg(Color::Gray))
                     .labels(vec![
-                        Span::styled(format!("PH {}", min.1), Style::default().add_modifier(Modifier::BOLD)),
-                        Span::styled(format!("PH {}", max.1), Style::default().add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("PH {}", val_min), Style::default().add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("PH {}", val_max), Style::default().add_modifier(Modifier::BOLD)),
                     ])
-                    .bounds([min.1, max.1])
+                    .bounds([val_min, val_max])
             );
         frame.render_widget(chart, area)
     }

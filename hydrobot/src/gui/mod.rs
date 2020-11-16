@@ -21,6 +21,7 @@ use widgets::*;
 
 
 const MAX_TDS_SAMPLES: usize = 256;
+const MAX_PH_SAMPLES: usize = 256;
 const MAX_LOG: usize = 256;
 
 pub enum LogLevel {
@@ -45,7 +46,8 @@ pub enum GuiEvent {
     Key(Key),
     Log(SystemTime, String, LogLevel),
     Query(SystemTime, String),
-    Tds1(f64),
+    TdsSensore(f64),
+    PhSensore(f64),
     Status(Status),
 }
 
@@ -60,13 +62,17 @@ pub struct GuiActor {
 }
 
 pub struct App {
+    selected_setting_categorie: SettingCategorie,
     focused: bool,
-    job_kind: Job,
+    tds_enabled: bool,
+    ph_enabled: bool,
     scheduler: Addr<SchedulerActor>,
     status: Status,
     store: Store,
-    tds_1: f64,
-    tds_1_buffer_trunc: Vec<(f64, f64)>,
+    tds: f64,
+    tds_buffer_trunc: Vec<(f64, f64)>,
+    ph: f64,
+    ph_buffer_trunc: Vec<(f64, f64)>,
     logs: VecDeque<(SystemTime, String, LogLevel)>,
     queries: VecDeque<(SystemTime, String)>,
 }
@@ -80,9 +86,14 @@ pub trait SelectableWidget {
 }
 impl App {
 
-    fn set_job_kind(&mut self, kind: Job) {
-        self.job_kind = kind;
-        self.scheduler.do_send(SchedulerRequest::SetCurrentJob{ kind })
+    fn set_tds_monitor(&mut self, enabled: bool) {
+        self.tds_enabled = enabled;
+        self.scheduler.do_send(SchedulerRequest::SetEcMonitorEnabled { enabled })
+    }
+
+    fn set_ph_monitor(&mut self, enabled: bool) {
+        self.ph_enabled = enabled;
+        self.scheduler.do_send(SchedulerRequest::SetPhMonitorEnabled { enabled })
     }
 
     fn draw(&mut self, terminal: &mut Term, widgets: &[Box<dyn SelectableWidget>]) -> Result<(), Box<dyn Error>>  {
@@ -169,15 +180,19 @@ impl GuiActor {
             current_selection: 2,
             terminal,
             app: App {
+                selected_setting_categorie: SettingCategorie::General,
                 focused: false,
-                job_kind: Job::Standby,
+                ph_enabled: false,
+                tds_enabled: false,
                 scheduler,
                 status: Status::NONE,
-                tds_1: 0.0,
+                tds: 0.0,
+                ph: 0.0,
                 store: store,
                 logs: VecDeque::new(),
                 queries: VecDeque::new(),
-                tds_1_buffer_trunc: Vec::with_capacity(MAX_TDS_SAMPLES),
+                tds_buffer_trunc: Vec::with_capacity(MAX_TDS_SAMPLES),
+                ph_buffer_trunc: Vec::with_capacity(MAX_PH_SAMPLES),
             }
         }
     }
@@ -191,12 +206,20 @@ impl Handler<GuiEvent> for GuiActor {
             GuiEvent::Status(status) => {
                 self.app.status = status;
             },
-            GuiEvent::Tds1(tds) => {
-                self.app.tds_1_buffer_trunc.push((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as f64, tds));
-                if self.app.tds_1_buffer_trunc.len() > MAX_TDS_SAMPLES {
-                    self.app.tds_1_buffer_trunc.remove(0);
+            GuiEvent::TdsSensore(tds) => {
+                self.app.tds_buffer_trunc.push((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as f64, tds));
+                if self.app.tds_buffer_trunc.len() > MAX_TDS_SAMPLES {
+                    self.app.tds_buffer_trunc.remove(0);
                 }
-                self.app.tds_1 = tds;
+                self.app.tds = tds;
+            },
+            GuiEvent::PhSensore(ph) => {
+                self.app.ph_buffer_trunc.push((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as f64, ph));
+                if self.app.ph_buffer_trunc.len() > MAX_PH_SAMPLES {
+                    self.app.ph_buffer_trunc.remove(0);
+                }
+                self.app.ph = ph;
+
             },
             GuiEvent::Log(date, msg, level) => {
                 self.app.logs.push_back((date, msg, level));

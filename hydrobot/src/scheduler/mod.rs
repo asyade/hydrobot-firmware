@@ -29,8 +29,11 @@ pub enum SchedulerRequest {
         result: SerialCommandResult,
         success: bool,
     },
-    SetCurrentJob {
-        kind: Job,
+    SetPhMonitorEnabled {
+        enabled: bool,
+    },
+    SetEcMonitorEnabled {
+        enabled: bool,
     },
     SetTdsThresh {
         thresh: f64,
@@ -41,14 +44,15 @@ pub enum SchedulerRequest {
     SetOsmoseurPulseMinInterval {
         interval: std::time::Duration,
     },
-}
-
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub enum Job {
-    Standby,
-    EcMonitor,
-    PhMonitor,
-    FullMonitor,
+    SetPhThresh {
+        thresh: f64,
+    },
+    SetPhPulseDuration {
+        duration: std::time::Duration,
+    },
+    SetPhPulseMinInterval {
+        interval: std::time::Duration,
+    },
 }
 
 #[derive(Debug)]
@@ -71,15 +75,17 @@ impl PumpHardwareLock {
 }
 
 pub struct SchedulerActor {
-    bras_pump: PumpHardwareLock,
     osmoseur_pump: PumpHardwareLock,
     status: Status,
     handle: Option<SerialDaemonHandle>,
     gui: Option<Addr<GuiActor>>,
     store: Store,
     tds_1_samples: SamplesAnalytic,
-    tds_1_monitor: PulseMonitor,
-    job_kind: Job,
+    tds_monitor: PulseMonitor,
+    ph_1_samples: SamplesAnalytic,
+    ph_monitor: PulseMonitor,
+    ph_monitor_enabled: bool,
+    ec_monitor_enabled: bool,
     add_osmosed_water_task: Option<AddOsmoseurWaterTask>,
 }
 
@@ -91,15 +97,17 @@ pub enum Task {
 impl SchedulerActor {
     pub fn new(store: Store) -> Self {
         Self {
-            job_kind: Job::Standby,
+            ph_monitor_enabled: false,
+            ec_monitor_enabled: false,
             status: Status::NONE,
             handle: None,
-            tds_1_monitor: PulseMonitor::new(store.get_tds_1_thresh(), store.get_osmoseur_pulse_min_interval(), store.get_osmoseur_pulse_duration()),
             gui: None,
+            tds_monitor: PulseMonitor::new(store.get_tds_1_thresh(), store.get_osmoseur_pulse_min_interval(), store.get_osmoseur_pulse_duration()),
             tds_1_samples: SamplesAnalytic::new(20, 4, Duration::from_secs(10)),
+            ph_monitor: PulseMonitor::new(store.get_ph_1_thresh(), store.get_ph_pulse_min_interval(), store.get_ph_pulse_duration()),
+            ph_1_samples: SamplesAnalytic::new(20, 4, Duration::from_secs(10)),
             store,
             osmoseur_pump: PumpHardwareLock::new(),
-            bras_pump: PumpHardwareLock::new(),
             add_osmosed_water_task: None,
         }
     }
@@ -147,26 +155,38 @@ impl Handler<SchedulerRequest> for SchedulerActor {
             SchedulerRequest::SetTdsThresh {  thresh } => {
                 self.info(format!("Tds threshold updated to {}", thresh));
                 self.store.set_tds_1_thresh(thresh);
-                self.tds_1_monitor.threshold = thresh;
+                self.tds_monitor.threshold = thresh;
             }
             SchedulerRequest::SetOsmoseurPulseDuration {  duration } => {
                 self.info(format!("Osmoseur pulse duration updated to {}", duration.as_secs()));
                 self.store.set_osmoseur_pulse_duration(duration);
-                self.tds_1_monitor.pulse_duration = duration;
+                self.tds_monitor.pulse_duration = duration;
             }
             SchedulerRequest::SetOsmoseurPulseMinInterval {  interval } => {
                 self.info(format!("Osmoseur pulse minimum interval updated to {}", interval.as_secs()));
                 self.store.set_osmoseur_pulse_min_interval(interval);
-                self.tds_1_monitor.pulse_minimum_interval = interval;
+                self.tds_monitor.pulse_minimum_interval = interval;
             }
-            SchedulerRequest::SetCurrentJob { kind } => {
-                self.job_kind = kind;
-                match kind {
-                    Job::EcMonitor => self.info("TDS Monitoring enabled !"),
-                    Job::PhMonitor => self.info("PH Monitoring enabled !"),
-                    Job::FullMonitor => self.info("TDS + PH Monitoring enabled !"),
-                    _ => {},
-                }
+            SchedulerRequest::SetPhThresh {  thresh } => {
+                self.info(format!("ph threshold updated to {}", thresh));
+                self.store.set_ph_1_thresh(thresh);
+                self.ph_monitor.threshold = thresh;
+            }
+            SchedulerRequest::SetPhPulseDuration {  duration } => {
+                self.info(format!("ph pulse duration updated to {}", duration.as_secs()));
+                self.store.set_ph_pulse_duration(duration);
+                self.ph_monitor.pulse_duration = duration;
+            }
+            SchedulerRequest::SetPhPulseMinInterval {  interval } => {
+                self.info(format!("ph pulse minimum interval updated to {}", interval.as_secs()));
+                self.store.set_ph_pulse_min_interval(interval);
+                self.ph_monitor.pulse_minimum_interval = interval;
+            }
+            SchedulerRequest::SetEcMonitorEnabled { enabled } => {
+                self.ec_monitor_enabled = enabled;
+            },
+            SchedulerRequest::SetPhMonitorEnabled { enabled } => {
+                self.ph_monitor_enabled = enabled;
             },
             SchedulerRequest::Init { handle , gui} => {
                 self.handle = Some(handle);
@@ -180,34 +200,59 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                 match result {
                     SerialCommandResult::S0 { on } if success => { self.osmoseur_pump.opened = on; },
                     SerialCommandResult::S0 { .. } => { self.osmoseur_pump.poisoned = Some(HardwareError("Osmoseur pump healted")); },
-                    SerialCommandResult::S2 { on } if success => { self.bras_pump.opened = on; },
-                    SerialCommandResult::S2 { .. } => { self.bras_pump.poisoned = Some(HardwareError("Brass pump healted")); },
                     SerialCommandResult::S1 { .. } => {
                         // self.listeners.get_mut("S1").map(|m| m.replace(e));
                     },
                     SerialCommandResult::G0 {..} => {},
-                    SerialCommandResult::G1 { tds_1, tds_2, status } => {
-                        info!("Receive tds metric: {:?} {:?}", &tds_1, &tds_2);
+                    SerialCommandResult::G1 { tds_1, ph_1, status } => {
                         if let Some(status) = status {
-                            if status.contains(Status::TDS_1_CONNECTED) && !self.status.contains(Status::TDS_1_CONNECTED) {
-                                self.info("TDS 1 Connected !");
+                            if status.contains(Status::TDS_CONNECTED) && !self.status.contains(Status::TDS_CONNECTED) {
+                                self.info("TDS probe connected !");
                                 self.tds_1_samples.clear();
                             }
-                            else if !status.contains(Status::TDS_1_CONNECTED) && self.status.contains(Status::TDS_1_CONNECTED) {
-                                self.warn("TDS 1 Disconnected !");
+                            else if !status.contains(Status::TDS_CONNECTED) && self.status.contains(Status::TDS_CONNECTED) {
+                                self.warn("TDS probe disconnected !");
+                            }
+                            if status.contains(Status::PH_CONNECTED) && !self.status.contains(Status::PH_CONNECTED) {
+                                self.info("PH probe donnected !");
+                                self.tds_1_samples.clear();
+                            }
+                            else if !status.contains(Status::PH_CONNECTED) && self.status.contains(Status::PH_CONNECTED) {
+                                self.warn("PH probe disconnected !");
                             }
                             self.status = status;
                             self.to_gui(GuiEvent::Status(status));
                         }
-                        if self.status.contains(Status::TDS_1_CONNECTED) {
+                        if self.status.contains(Status::TDS_CONNECTED) {
                             if let Some(sample) = tds_1 {
-                                self.to_gui(GuiEvent::Tds1(sample));
+                                self.to_gui(GuiEvent::TdsSensore(sample));
                                 if let Some(updated) = self.tds_1_samples.sample(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), sample) {
                                     self.info(format!("TDS 1 Status changed to {:?}", updated));
                                 }
                                 if let AnalyticStatus::Stable(current) = self.tds_1_samples.status {
-                                    if let Job::FullMonitor | Job::EcMonitor = self.job_kind {
-                                        if let Some(duration) = self.tds_1_monitor.update(current) {
+                                    if self.ec_monitor_enabled {
+                                        if let Some(duration) = self.tds_monitor.update(current) {
+                                            if self.add_osmosed_water_task.is_some() {
+                                                self.query("Can't lower TDS for now, the task is already pending !");
+                                            } else { 
+                                                self.add_osmosed_water_task = Some(AddOsmoseurWaterTask::new(duration));
+                                                self.query("Lowering TDS value (adding clean water)");
+                                            }
+                                        }
+                                    }
+                                } 
+                            }
+                        }
+
+                        if self.status.contains(Status::PH_CONNECTED) {
+                            if let Some(sample) = ph_1 {
+                                self.to_gui(GuiEvent::PhSensore(sample));
+                                if let Some(updated) = self.ph_1_samples.sample(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), sample) {
+                                    self.info(format!("TDS 1 Status changed to {:?}", updated));
+                                }
+                                if let AnalyticStatus::Stable(current) = self.ph_1_samples.status {
+                                    if self.ph_monitor_enabled {
+                                        if let Some(duration) = self.tds_monitor.update(current) {
                                             if self.add_osmosed_water_task.is_some() {
                                                 self.query("Can't lower TDS for now, the task is already pending !");
                                             } else { 

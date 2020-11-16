@@ -59,9 +59,9 @@ impl SchedulerActor {
                 self.info("Wait osmoseur valve to be closed ...");
                 task.status = AddOsmoseurWaterStatus::WaitClose;
             },
-            AddOsmoseurWaterStatus::WaitClose if !self.osmoseur_pump.opened.unwrap_or_default() && !self.bras_pump.opened.unwrap_or_default() => {
+            AddOsmoseurWaterStatus::WaitClose if !self.osmoseur_pump.opened.unwrap_or_default() => {
                 self.info("Osmoseur valve closed !");
-                self.tds_1_monitor.resume();
+                self.tds_monitor.resume();
                 self.osmoseur_pump.locked = false;
                 return;
             },
