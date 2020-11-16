@@ -8,6 +8,8 @@
 #define PH_SAMPLE_INTERVAL 100
 #define TDS_1_PIN 11
 #define PH_1_PIN 9
+#define TDS_FILTER_WEIGHT 5
+#define PH_FILTER_WEIGHT  2
 
 #define WATER_VALVE_STEPPER_PIN_STEP 60
 #define WATER_VALVE_STEPPER_PIN_DIR 61
@@ -19,8 +21,11 @@
 #define BRASS_PUMP_IN_PIN 8
 #define BRASS_PUMP_OUT_PIN 7
 #define BRONCHUS_CAPACITY 50//50cl
-#define BRASS_PUMP_IN_FLOW_RATE 8400 // 8400 cl/h
-#define BRASS_PUMP_OUT_FLOW_RATE  84000
+
+#define BRONCHUS_FILL_DURATION              40000
+#define BRONCHUS_EMPTY_DURATION             26000
+#define BRONCHUS_STANDBY_FULL_DURATION      40000
+#define BRONCHUS_STANDBY_SAMPLING_DURATION  120000
 
 #define PPUMP_1_STEPPER_PIN_STEP 36
 #define PPUMP_1_STEPPER_PIN_DIR 34
@@ -33,28 +38,29 @@
 #define RES_ERR(msg) Serial.println("ERR " msg)
 
 #define COMMAND_BUFFER_SIZE 64
-#define TDS_FILTER_WEIGHT 5
 
 #define CMD_SEPARATOR " "
 
 #define HEALT_CHECK_INTERVAL 1000
 
-#define S_TDS_1_CONNECTED      ((1 << 0))
-#define S_PH_1_CONNECTED       ((1 << 2))
-#define S_OSMOS_SWITCH_OPENED  ((1 << 3))
-#define S_OSMOS_SWITCH_OPENING ((1 << 4))
-#define S_OSMOS_SWITCH_CLOSING ((1 << 5))
-#define S_OSMOS_SWITCH_CLOSED  ((1 << 6))
-#define S_PERISTALIC_PUMP_ON   ((1 << 7))
-#define S_PERISTALIC_PUMP_REV  ((1 << 8))
-#define S_BRASS_PUMP_IN_ON     ((1 << 9))
-#define S_BRASS_PUMP_OUT_ON    ((1 << 10))
-#define S_BRONCHUS_FULL        ((1 << 11))
+#define S_TDS_1_CONNECTED                 ((1 << 0))
+#define S_PH_1_CONNECTED                  ((1 << 2))
+#define S_OSMOS_SWITCH_OPENED             ((1 << 3))
+#define S_OSMOS_SWITCH_OPENING            ((1 << 4))
+#define S_OSMOS_SWITCH_CLOSING            ((1 << 5))
+#define S_OSMOS_SWITCH_CLOSED             ((1 << 6))
+#define S_PERISTALIC_PUMP_ON              ((1 << 7))
+#define S_PERISTALIC_PUMP_REV             ((1 << 8))
+#define S_BRONCHUS_STANDBY_FULL           ((1 << 9))
+#define S_BRONCHUS_STANDBY_SAMPLING       ((1 << 10))
+#define S_BRONCHUS_WAIT_FULL              ((1 << 11))
+#define S_BRONCHUS_WAIT_EMPTY             ((1 << 12))
 
 
 #define M_OSMOS_SWITCH_BUSY ((S_OSMOS_SWITCH_OPENING | S_OSMOS_SWITCH_CLOSING))
 
-unsigned int status = S_OSMOS_SWITCH_CLOSING;
+unsigned int status = S_OSMOS_SWITCH_CLOSING | S_BRONCHUS_STANDBY_SAMPLING;
+unsigned long int breath_step = millis();
 
 Stepper valve_stepper(WATER_VALE_STEPPER_STEPS, WATER_VALVE_STEPPER_PIN_STEP, WATER_VALVE_STEPPER_PIN_DIR);
 Stepper ppump_1_stepper(PPUMP_1_STEPPER_STEPS, PPUMP_1_STEPPER_PIN_STEP, PPUMP_1_STEPPER_PIN_DIR);
@@ -67,10 +73,8 @@ int command_buffer_idx = 0;
 ExponentialFilter<long> tds_1_filter(TDS_FILTER_WEIGHT, 1);
 long tds_1_raw;
 
-ExponentialFilter<long> ph_1_filter(TDS_FILTER_WEIGHT, 1);
+ExponentialFilter<long> ph_1_filter(PH_FILTER_WEIGHT, 600);
 long ph_1_raw;
-
-
 
 unsigned long int last_tds_update = millis();
 unsigned long int last_ph_update = millis();
@@ -210,38 +214,17 @@ inline void S1() {
 inline void S2() {
   char *command = strtok(NULL, CMD_SEPARATOR);
   if (command != NULL) {
-    if (strncasecmp(command, "ON", 2) == 0) {
-      status |= S_BRASS_PUMP_IN_ON;
-      digitalWrite(BRASS_PUMP_IN_PIN, HIGH);
-      RES_OK("S2 ON");
-    } else if (strncasecmp(command, "OFF", 3) == 0) {
-      digitalWrite(BRASS_PUMP_IN_PIN, LOW);
-      status &= ~S_BRASS_PUMP_IN_ON;
-      RES_OK("S2 OFF");
+    if (strncasecmp(command, "FILL", 2) == 0) {
+      // status |= S_BRASS_PUMP_IN_ON;
+      // digitalWrite(BRASS_PUMP_IN_PIN, HIGH);
+    } else if (strncasecmp(command, "EMPTY", 3) == 0) {
+      // status &= ~S_BRASS_PUMP_IN_ON;
+      // digitalWrite(BRASS_PUMP_IN_PIN, LOW);
     } else {
         RES_ERR("S2 BAD_REQUEST");
     }
   }
 }
-
-
-inline void S3() {
-  char *command = strtok(NULL, CMD_SEPARATOR);
-  if (command != NULL) {
-    if (strncasecmp(command, "ON", 2) == 0) {
-      status |= S_BRASS_PUMP_OUT_ON;
-      digitalWrite(BRASS_PUMP_OUT_PIN, HIGH);
-      RES_OK("S3 ON");
-    } else if (strncasecmp(command, "OFF", 3) == 0) {
-      digitalWrite(BRASS_PUMP_OUT_PIN, LOW);
-      status &= ~S_BRASS_PUMP_OUT_ON;
-      RES_OK("S3 OFF");
-    } else {
-        RES_ERR("S3 BAD_REQUEST");
-    }
-  }
-}
-
 
 
 void setup() {
@@ -265,7 +248,10 @@ void setup() {
   }
 }
 
+unsigned long int step_begin = millis();
+
 void loop() {
+  step_begin = millis();
   // Fill the command buffer
   while (Serial.available() > 0) {
     if (command_buffer_idx + 1 >= COMMAND_BUFFER_SIZE) {
@@ -290,7 +276,6 @@ void loop() {
     else if (strncasecmp(command, "S0", 2) == 0)    S0();
     else if (strncasecmp(command, "S1", 2) == 0)    S1();
     else if (strncasecmp(command, "S2", 2) == 0)    S2();
-    else if (strncasecmp(command, "S3", 3) == 0)    S3();
     else if (strncasecmp(command, "G0", 2) == 0)    G0();
     else if (strncasecmp(command, "G1", 2) == 0)    G1();
     else {
@@ -304,7 +289,7 @@ void loop() {
   if (status & S_OSMOS_SWITCH_CLOSING) {
     digitalWrite(WATER_VALE_STEPPER_SW, LOW);
     if (water_valve_current_angle < WATER_VALVE_DELTA) {
-      valve_stepper.step(1);
+      valve_stepper.step(-1);
       water_valve_current_angle += 1;
     } else {
       RES_OK("S0 OFF");
@@ -315,7 +300,7 @@ void loop() {
   else if (status & S_OSMOS_SWITCH_OPENING) {
     digitalWrite(WATER_VALE_STEPPER_SW, LOW);
     if (water_valve_current_angle > -WATER_VALVE_DELTA) {
-      valve_stepper.step(-1);
+      valve_stepper.step(1);
       water_valve_current_angle -= 1;
     } else {
       RES_OK("S0 ON");
@@ -331,12 +316,12 @@ void loop() {
     ppump_1_stepper.step(1);
   } else if (status & S_PERISTALIC_PUMP_REV) {
     digitalWrite(PPUMP_1_STEPPER_SW, LOW);
-    ppump_1_stepper.step(-1);
+    ppump_1_stepper.step(1);
   } else {
     digitalWrite(PPUMP_1_STEPPER_SW, HIGH);
   }
   // Tds update
-  if (last_tds_update - millis() >= TDS_SAMPLE_INTERVAL) {
+  if (millis() - last_tds_update >= TDS_SAMPLE_INTERVAL) {
     last_tds_update = millis();
     tds_1_raw = analogRead(TDS_1_PIN);
     tds_1_filter.Filter(tds_1_raw);
@@ -346,7 +331,8 @@ void loop() {
       status |= S_TDS_1_CONNECTED;
     }
   }
-  if (last_ph_update - millis() >= PH_SAMPLE_INTERVAL) {
+  // Ph update
+  if (millis() - last_ph_update >= PH_SAMPLE_INTERVAL && status & S_BRONCHUS_STANDBY_SAMPLING) {
     last_ph_update = millis();
     ph_1_raw = 1023 - analogRead(PH_1_PIN);
     ph_1_filter.Filter(map(ph_1_raw, 0, 1024, 0, 1400));
@@ -355,7 +341,32 @@ void loop() {
     } else {
       status |= S_PH_1_CONNECTED;
     }
+  //  Serial.println((float)ph_1_filter.Current() / 100.0);
   }
-  // Ph update
-  
+  // Breath update
+  if (status & S_BRONCHUS_STANDBY_FULL && millis() - breath_step >= BRONCHUS_STANDBY_FULL_DURATION) { // the bronche are full empty theme
+    status &= ~S_BRONCHUS_STANDBY_FULL;
+    status |= S_BRONCHUS_STANDBY_SAMPLING;
+    breath_step = millis();
+  } else if (status & S_BRONCHUS_STANDBY_SAMPLING && millis() - breath_step >= BRONCHUS_STANDBY_SAMPLING_DURATION) { // the bronche are full empty theme
+    status &= ~S_BRONCHUS_STANDBY_SAMPLING;
+    status |= S_BRONCHUS_WAIT_EMPTY;
+    breath_step = millis();
+    digitalWrite(BRASS_PUMP_OUT_PIN, HIGH);
+  } else if (status & S_BRONCHUS_WAIT_EMPTY && millis() - breath_step >= BRONCHUS_EMPTY_DURATION) {
+    status &= ~S_BRONCHUS_WAIT_EMPTY;
+    status |= S_BRONCHUS_WAIT_FULL;
+    digitalWrite(BRASS_PUMP_OUT_PIN, LOW);
+    digitalWrite(BRASS_PUMP_IN_PIN, HIGH);
+    breath_step = millis();
+  } else if (status & S_BRONCHUS_WAIT_FULL && millis() - breath_step >= BRONCHUS_FILL_DURATION) {
+    status &= ~S_BRONCHUS_WAIT_FULL;
+    status |= S_BRONCHUS_STANDBY_FULL;
+    digitalWrite(BRASS_PUMP_IN_PIN, LOW);
+    breath_step = millis();
+  }
+  unsigned long int step_duration = millis() - step_begin;
+  if (step_duration > 5) {
+    Serial.println("Frame take too long !");
+  }
 }
