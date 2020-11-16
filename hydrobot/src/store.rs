@@ -20,6 +20,8 @@ const SETTING_PH_PULSE_DURATION_DEFAULT: u64 = 10; //10 secs
 const SETTING_PH_PULSE_MIN_INTERVAL: &str = "ph_pulse_min_interval";
 const SETTING_PH_PULSE_MIN_INTERVAL_DEFAULT: u64 = 240; //10 secs
 
+const SETTING_TDS_MONITORING: &str = "tds_monitoring";
+const SETTING_PH_MONITORING: &str = "ph_monitoring";
 
 #[derive(Clone)]
 pub struct Store {
@@ -38,6 +40,21 @@ impl Store {
         }
     }
 
+    fn put_setting_bool(&self, name: &str, val: bool) {
+        self.settings_tree.insert(name, &[val as u8]).expect("Failed to update param");
+        let _ = self.db.flush();
+    }
+
+    fn get_setting_bool(&self, name: &str, default: bool) -> bool {
+        if let Ok(Some(param)) = self.settings_tree.get(name) {
+            let buff: &[u8] = param.as_ref();
+            buff[0] == 1
+        } else {
+            self.put_setting_bool(name, default);
+            default
+        }
+    }
+
     fn put_setting_f64(&self, name: &str, val: f64) {
         self.settings_tree.insert(name, &val.to_be_bytes()).expect("Failed to update param");
         let _ = self.db.flush();
@@ -51,7 +68,6 @@ impl Store {
             self.put_setting_f64(name, default);
             default
         }
-
     }
 
     fn put_setting_i64(&self, name: &str, val: i64) {
@@ -84,6 +100,20 @@ impl Store {
         }
     }
     
+    pub fn set_tds_monitoring(&self, val: bool) {
+        self.put_setting_bool(SETTING_TDS_MONITORING, val)
+    }
+    pub fn get_tds_monitoring(&self) -> bool {
+        self.get_setting_bool(SETTING_TDS_MONITORING, false)
+    }
+
+    pub fn set_ph_monitoring(&self, val: bool) {
+        self.put_setting_bool(SETTING_PH_MONITORING, val)
+    }
+    pub fn get_ph_monitoring(&self) -> bool {
+        self.get_setting_bool(SETTING_PH_MONITORING, false)
+    }
+
     pub fn set_tds_1_thresh(&self, val: f64) {
         self.put_setting_f64(SETTING_TDS_1, val)
     }

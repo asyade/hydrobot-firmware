@@ -43,8 +43,8 @@
 
 #define HEALT_CHECK_INTERVAL 1000
 
-#define S_TDS_1_CONNECTED                 ((1 << 0))
-#define S_PH_1_CONNECTED                  ((1 << 2))
+#define S_TDS_CONNECTED                 ((1 << 0))
+#define S_PH_CONNECTED                  ((1 << 2))
 #define S_OSMOS_SWITCH_OPENED             ((1 << 3))
 #define S_OSMOS_SWITCH_OPENING            ((1 << 4))
 #define S_OSMOS_SWITCH_CLOSING            ((1 << 5))
@@ -138,6 +138,8 @@ inline void G0() {
   Serial.print("OK G0");
   Serial.print(" TDS1 ");
   Serial.print(tds_1_raw);
+  Serial.print(" PH1 ");
+  Serial.print(ph_1_raw);
   Serial.println();
 }
 
@@ -326,9 +328,9 @@ void loop() {
     tds_1_raw = analogRead(TDS_1_PIN);
     tds_1_filter.Filter(tds_1_raw);
     if (tds_1_raw == 0) {
-      status &= ~S_TDS_1_CONNECTED;
+      status &= ~S_TDS_CONNECTED;
     } else {
-      status |= S_TDS_1_CONNECTED;
+      status |= S_TDS_CONNECTED;
     }
   }
   // Ph update
@@ -337,9 +339,9 @@ void loop() {
     ph_1_raw = 1023 - analogRead(PH_1_PIN);
     ph_1_filter.Filter(map(ph_1_raw, 0, 1024, 0, 1400));
     if (ph_1_raw == 0) {
-      status &= ~S_PH_1_CONNECTED;
+      status &= ~S_PH_CONNECTED;
     } else {
-      status |= S_PH_1_CONNECTED;
+      status |= S_PH_CONNECTED;
     }
   //  Serial.println((float)ph_1_filter.Current() / 100.0);
   }

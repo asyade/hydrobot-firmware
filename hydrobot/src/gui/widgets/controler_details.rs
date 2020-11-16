@@ -137,16 +137,16 @@ impl ControlerDetailsWidget {
     pub fn new(store: &Store) -> Self {
         let mut widgets = HashMap::new();
         widgets.insert(SettingCategorie::General, vec![
-            ParamWidget::new("EC Compensation", ParamKind::Boolean(false))
+            ParamWidget::new("EC Compensation", ParamKind::Boolean(store.get_tds_monitoring()))
                 .can_edit(true)
                 .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
                     app.scheduler.do_send(SchedulerRequest::SetEcMonitorEnabled { enabled: kind.bool() });
                 }))
             ,
-            ParamWidget::new("PH Compensation", ParamKind::Boolean(false))
+            ParamWidget::new("PH Compensation", ParamKind::Boolean(store.get_ph_monitoring()))
                 .can_edit(true)
                 .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
-                        app.scheduler.do_send(SchedulerRequest::SetPhMonitorEnabled { enabled: kind.bool() });
+                    app.scheduler.do_send(SchedulerRequest::SetPhMonitorEnabled { enabled: kind.bool() });
                 }))
         ]);
         widgets.insert(SettingCategorie::EcMonitor, vec![
@@ -155,7 +155,7 @@ impl ControlerDetailsWidget {
                 .can_edit(true)
                 .apply_ref(Box::from(|kind: &mut ParamKind, app: &App| { *kind.float_mut() = app.tds; }))
                 .apply_val(Box::from(|kind: &ParamKind, app: &mut App| {
-                        app.scheduler.do_send(SchedulerRequest::SetTdsThresh { thresh: kind.float() });
+                    app.scheduler.do_send(SchedulerRequest::SetTdsThresh { thresh: kind.float() });
                 })
             ),
             ParamWidget::new("Osmoseur pulse duration", ParamKind::Duration(store.get_osmoseur_pulse_duration()))

@@ -57,11 +57,11 @@ pub struct SamplesAnalytic {
     /// Number of consecutive sample on which calculation is done
     pub history_size: usize,
     /// Minimum delta betwen two sample to assume theme different
-    pub presision: i64,
+    pub presision: f64,
 }
 
 impl SamplesAnalytic {
-    pub fn new(history_size: usize, presision: i64, stabilization_delay: Duration) -> Self {
+    pub fn new(history_size: usize, presision: f64, stabilization_delay: Duration) -> Self {
         Self {
             stabilization_delay,
             presision,
@@ -91,16 +91,18 @@ impl SamplesAnalytic {
         if self.samples.len() < self.history_size {
             return self.update_status(AnalyticStatus::Unknown)
         }
-        let min = self.samples.iter().map(|(_, e)| e.round() as i64).min().unwrap();
-        let max = self.samples.iter().map(|(_, e)| e.round() as i64).max().unwrap();
+        let min = self.samples.iter().map(|(_, e)| (e * 100.0).round() as i64).min().unwrap() as f64 / 100.0;
+        let max = self.samples.iter().map(|(_, e)| (e * 100.0).round() as i64).max().unwrap() as f64 / 100.0;
         let current = if let AnalyticStatus::Stabilizing(e, _) |  AnalyticStatus::Stable(e) | AnalyticStatus::Uprising(e) | AnalyticStatus::Downrising(e) = self.status {
-            e.round() as i64
+            e
         } else {
-            (min as f64 + max as f64 / 2.0).round() as i64
+            min + max / 2.0
         };
         let uprising_delta = max - current;
         let downrising_delta = current - min;
-        let dir = if uprising_delta - downrising_delta > self.presision { 1 } else if downrising_delta - uprising_delta > self.presision { -1 } else { 0 }; 
+        let dir = 
+            if uprising_delta - downrising_delta > self.presision { 1 }
+            else if downrising_delta - uprising_delta > self.presision { -1 } else { 0 }; 
         let new_status = match self.status {
             AnalyticStatus::Stabilizing(val, from) if dir == 0 && SystemTime::now().duration_since(from).unwrap() > self.stabilization_delay => AnalyticStatus::Stable(val),
             AnalyticStatus::Stabilizing(val, from) if dir == 0 => AnalyticStatus::Stabilizing(val, from),

@@ -64,8 +64,6 @@ pub struct GuiActor {
 pub struct App {
     selected_setting_categorie: SettingCategorie,
     focused: bool,
-    tds_enabled: bool,
-    ph_enabled: bool,
     scheduler: Addr<SchedulerActor>,
     status: Status,
     store: Store,
@@ -85,16 +83,6 @@ pub trait SelectableWidget {
     }
 }
 impl App {
-
-    fn set_tds_monitor(&mut self, enabled: bool) {
-        self.tds_enabled = enabled;
-        self.scheduler.do_send(SchedulerRequest::SetEcMonitorEnabled { enabled })
-    }
-
-    fn set_ph_monitor(&mut self, enabled: bool) {
-        self.ph_enabled = enabled;
-        self.scheduler.do_send(SchedulerRequest::SetPhMonitorEnabled { enabled })
-    }
 
     fn draw(&mut self, terminal: &mut Term, widgets: &[Box<dyn SelectableWidget>]) -> Result<(), Box<dyn Error>>  {
         terminal.draw(|f| {
@@ -182,8 +170,6 @@ impl GuiActor {
             app: App {
                 selected_setting_categorie: SettingCategorie::General,
                 focused: false,
-                ph_enabled: false,
-                tds_enabled: false,
                 scheduler,
                 status: Status::NONE,
                 tds: 0.0,

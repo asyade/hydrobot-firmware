@@ -97,15 +97,15 @@ pub enum Task {
 impl SchedulerActor {
     pub fn new(store: Store) -> Self {
         Self {
-            ph_monitor_enabled: false,
-            ec_monitor_enabled: false,
+            ph_monitor_enabled: store.get_ph_monitoring(),
+            ec_monitor_enabled: store.get_tds_monitoring(),
             status: Status::NONE,
             handle: None,
             gui: None,
             tds_monitor: PulseMonitor::new(store.get_tds_1_thresh(), store.get_osmoseur_pulse_min_interval(), store.get_osmoseur_pulse_duration()),
-            tds_1_samples: SamplesAnalytic::new(20, 4, Duration::from_secs(10)),
+            tds_1_samples: SamplesAnalytic::new(20, 4.0, Duration::from_secs(10)),
             ph_monitor: PulseMonitor::new(store.get_ph_1_thresh(), store.get_ph_pulse_min_interval(), store.get_ph_pulse_duration()),
-            ph_1_samples: SamplesAnalytic::new(20, 4, Duration::from_secs(10)),
+            ph_1_samples: SamplesAnalytic::new(20, 0.1, Duration::from_secs(10)),
             store,
             osmoseur_pump: PumpHardwareLock::new(),
             add_osmosed_water_task: None,
@@ -115,7 +115,6 @@ impl SchedulerActor {
     fn to_board(&mut self, req: SerialCommand) {
         self.handle.as_mut().unwrap().send(req).expect("Serial port");
     }
-
 
     fn info<T: ToString>(&self, msg: T) {
         if let Some(gui) = self.gui.as_ref() {
@@ -184,9 +183,11 @@ impl Handler<SchedulerRequest> for SchedulerActor {
             }
             SchedulerRequest::SetEcMonitorEnabled { enabled } => {
                 self.ec_monitor_enabled = enabled;
+                self.store.set_tds_monitoring(enabled);
             },
             SchedulerRequest::SetPhMonitorEnabled { enabled } => {
                 self.ph_monitor_enabled = enabled;
+                self.store.set_ph_monitoring(enabled);
             },
             SchedulerRequest::Init { handle , gui} => {
                 self.handle = Some(handle);
@@ -227,7 +228,7 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                             if let Some(sample) = tds_1 {
                                 self.to_gui(GuiEvent::TdsSensore(sample));
                                 if let Some(updated) = self.tds_1_samples.sample(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), sample) {
-                                    self.info(format!("TDS 1 Status changed to {:?}", updated));
+                                    self.info(format!("TDS Status changed to {:?}", updated));
                                 }
                                 if let AnalyticStatus::Stable(current) = self.tds_1_samples.status {
                                     if self.ec_monitor_enabled {
@@ -248,7 +249,7 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                             if let Some(sample) = ph_1 {
                                 self.to_gui(GuiEvent::PhSensore(sample));
                                 if let Some(updated) = self.ph_1_samples.sample(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), sample) {
-                                    self.info(format!("TDS 1 Status changed to {:?}", updated));
+                                    self.info(format!("PH Status changed to {:?}", updated));
                                 }
                                 if let AnalyticStatus::Stable(current) = self.ph_1_samples.status {
                                     if self.ph_monitor_enabled {
