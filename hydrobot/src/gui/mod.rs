@@ -46,8 +46,8 @@ pub enum GuiEvent {
     Key(Key),
     Log(SystemTime, String, LogLevel),
     Query(SystemTime, String),
-    TdsSensore(f64),
-    PhSensore(f64),
+    TdsSensore(f64, AnalyticStatus),
+    PhSensore(f64, AnalyticStatus),
     Status(Status),
 }
 
@@ -68,6 +68,8 @@ pub struct App {
     status: Status,
     store: Store,
     tds: f64,
+    tds_status: AnalyticStatus,
+    ph_status: AnalyticStatus,
     tds_buffer_trunc: Vec<(f64, f64)>,
     ph: f64,
     ph_buffer_trunc: Vec<(f64, f64)>,
@@ -173,6 +175,8 @@ impl GuiActor {
                 scheduler,
                 status: Status::NONE,
                 tds: 0.0,
+                tds_status: AnalyticStatus::Undefined,
+                ph_status: AnalyticStatus::Undefined,
                 ph: 0.0,
                 store: store,
                 logs: VecDeque::new(),
@@ -192,19 +196,21 @@ impl Handler<GuiEvent> for GuiActor {
             GuiEvent::Status(status) => {
                 self.app.status = status;
             },
-            GuiEvent::TdsSensore(tds) => {
+            GuiEvent::TdsSensore(tds, status) => {
                 self.app.tds_buffer_trunc.push((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as f64, tds));
                 if self.app.tds_buffer_trunc.len() > MAX_TDS_SAMPLES {
                     self.app.tds_buffer_trunc.remove(0);
                 }
                 self.app.tds = tds;
+                self.app.tds_status = status;
             },
-            GuiEvent::PhSensore(ph) => {
+            GuiEvent::PhSensore(ph, status) => {
                 self.app.ph_buffer_trunc.push((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as f64, ph));
                 if self.app.ph_buffer_trunc.len() > MAX_PH_SAMPLES {
                     self.app.ph_buffer_trunc.remove(0);
                 }
                 self.app.ph = ph;
+                self.app.ph_status = status;
 
             },
             GuiEvent::Log(date, msg, level) => {

@@ -28,18 +28,26 @@ impl SelectableWidget for TdsWidget {
             Dataset::default()
                 .name("TDS")
                 .marker(symbols::Marker::Dot)
+               
                 .data(&app.tds_buffer_trunc),
         ];
+        let postfix = match app.tds_status {
+            AnalyticStatus::Uprising(_) => "PPM ⇑",
+            AnalyticStatus::Downrising(_) => "PPM ⇓",
+            AnalyticStatus::Stable(_) => "PPM ⍻",
+            AnalyticStatus::Stabilizing(_,_) => "PPM ⏳",
+            _ => "PPM ?"
+        };
         let x_labels = if app.status.contains(Status::TDS_CONNECTED) {
             vec![
                 Span::raw("Current : "),
                 Span::styled(
-                    format!("{}PPM", app.tds),
+                    format!("{} {}", app.tds, postfix),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(format!("{}", "Target : ")),
                 Span::styled(
-                    format!("<>"),
+                    format!("TDS {}", app.store.get_tds_1_thresh()),
                     Style::default().add_modifier(Modifier::BOLD).bg(if self.selected { Color::White} else { Color:: Black })
                 ),
             ]
@@ -60,7 +68,7 @@ impl SelectableWidget for TdsWidget {
             .block(
                 Block::default()
                     .title(Span::styled(
-                        "TDS",
+                        format!("TDS"),
                         Style::default()
                             .fg(Color::Cyan)
                             .add_modifier(Modifier::BOLD),
@@ -80,8 +88,8 @@ impl SelectableWidget for TdsWidget {
                     .title("")
                     .style(Style::default().fg(Color::Gray))
                     .labels(vec![
-                        Span::styled(format!("{}PPM", val_min), Style::default().add_modifier(Modifier::BOLD)),
-                        Span::styled(format!("{}PPM", val_max), Style::default().add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("{} PPM", val_min), Style::default().add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("{} PPM", val_max), Style::default().add_modifier(Modifier::BOLD)),
                     ])
                     .bounds([val_min, val_max])
             );

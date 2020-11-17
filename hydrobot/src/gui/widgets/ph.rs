@@ -29,16 +29,23 @@ impl SelectableWidget for PhWidget {
                 .marker(symbols::Marker::Dot)
                 .data(&app.ph_buffer_trunc),
         ];
+        let postfix = match app.tds_status {
+            AnalyticStatus::Uprising(_) => "PH ⇑",
+            AnalyticStatus::Downrising(_) => "PH ⇓",
+            AnalyticStatus::Stable(_) => "PH ⍻",
+            AnalyticStatus::Stabilizing(_,_) => "PH ⏳",
+            _ => "PH ?"
+        };
         let x_labels = if app.status.contains(Status::PH_CONNECTED) {
             vec![
                 Span::raw("Current : "),
                 Span::styled(
-                    format!("PH {}", app.ph),
+                    format!("{} {}", app.ph, postfix),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(format!("{}", "Target : ")),
+                Span::raw(format!("Target : ")),
                 Span::styled(
-                    format!("<>"),
+                    format!("{} PH", app.store.get_ph_1_thresh()),
                     Style::default().add_modifier(Modifier::BOLD).bg(if self.selected { Color::White} else { Color:: Black })
                 ),
             ]

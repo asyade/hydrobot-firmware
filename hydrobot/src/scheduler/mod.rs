@@ -8,7 +8,7 @@ use std::sync::{Arc, RwLock};
 mod utils;
 mod tasks;
 use tasks::*;
-use utils::*;
+pub use utils::*;
 
 pub type SchedulerResult<T> =Result<T, SchedulerError>;
 
@@ -226,7 +226,7 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                         }
                         if self.status.contains(Status::TDS_CONNECTED) {
                             if let Some(sample) = tds_1 {
-                                self.to_gui(GuiEvent::TdsSensore(sample));
+                                self.to_gui(GuiEvent::TdsSensore(sample, self.tds_1_samples.status));
                                 if let Some(updated) = self.tds_1_samples.sample(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), sample) {
                                     self.info(format!("TDS Status changed to {:?}", updated));
                                 }
@@ -247,7 +247,7 @@ impl Handler<SchedulerRequest> for SchedulerActor {
 
                         if self.status.contains(Status::PH_CONNECTED) {
                             if let Some(sample) = ph_1 {
-                                self.to_gui(GuiEvent::PhSensore(sample));
+                                self.to_gui(GuiEvent::PhSensore(sample, self.ph_1_samples.status));
                                 if let Some(updated) = self.ph_1_samples.sample(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), sample) {
                                     self.info(format!("PH Status changed to {:?}", updated));
                                 }
