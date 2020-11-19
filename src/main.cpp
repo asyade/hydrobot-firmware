@@ -2,14 +2,20 @@
 #include <Stepper.h>
 #include <Filter.h>
 #include <EEPROM.h>
+#include <OneWire.h> 
+#include <DallasTemperature.h>
+
 
 #define SETTINGS_MAGIC 0x4243
 #define TDS_SAMPLE_INTERVAL 100
 #define PH_SAMPLE_INTERVAL 100
 #define TDS_1_PIN 11
 #define PH_1_PIN 9
+#define TEMP_PIN 40
 #define TDS_FILTER_WEIGHT 5
 #define PH_FILTER_WEIGHT  2
+#define TEMP_RESOLUTION 12
+#define STEP_DURATION 10
 
 #define WATER_VALVE_STEPPER_PIN_STEP 60
 #define WATER_VALVE_STEPPER_PIN_DIR 61
@@ -32,19 +38,17 @@
 #define PPUMP_1_STEPPER_SW 30
 #define PPUMP_1_STEPPER_STEPS 200
 
-
 #define STATUS_UNKNOWN -1
 #define RES_OK(msg) Serial.println("OK " msg)
 #define RES_ERR(msg) Serial.println("ERR " msg)
 
 #define COMMAND_BUFFER_SIZE 64
-
 #define CMD_SEPARATOR " "
 
 #define HEALT_CHECK_INTERVAL 1000
 
-#define S_TDS_CONNECTED                 ((1 << 0))
-#define S_PH_CONNECTED                  ((1 << 2))
+#define S_TDS_CONNECTED                   ((1 << 0))
+#define S_PH_CONNECTED                    ((1 << 2))
 #define S_OSMOS_SWITCH_OPENED             ((1 << 3))
 #define S_OSMOS_SWITCH_OPENING            ((1 << 4))
 #define S_OSMOS_SWITCH_CLOSING            ((1 << 5))
@@ -56,7 +60,7 @@
 #define S_BRONCHUS_WAIT_FULL              ((1 << 11))
 #define S_BRONCHUS_WAIT_EMPTY             ((1 << 12))
 
-
+#define M_STEPPER_RUNNING ((M_OSMOS_SWITCH_BUSY | S_PERISTALIC_PUMP_ON | S_PERISTALIC_PUMP_REV ))
 #define M_OSMOS_SWITCH_BUSY ((S_OSMOS_SWITCH_OPENING | S_OSMOS_SWITCH_CLOSING))
 
 unsigned int status = S_OSMOS_SWITCH_CLOSING | S_BRONCHUS_STANDBY_SAMPLING;
@@ -76,8 +80,16 @@ long tds_1_raw;
 ExponentialFilter<long> ph_1_filter(PH_FILTER_WEIGHT, 600);
 long ph_1_raw;
 
+float temp_1_raw;
+
+OneWire temp_bus(TEMP_PIN);
+DallasTemperature temp_sensore(&temp_bus);
+DeviceAddress temp_sensore_address;
+
 unsigned long int last_tds_update = millis();
 unsigned long int last_ph_update = millis();
+unsigned long int last_temp_update = millis();
+unsigned long int temp_conversion_duration = 750 / (1 << (12 - TEMP_RESOLUTION));
 
 typedef struct  s_settings
 {
@@ -169,6 +181,8 @@ inline void G1() {
   Serial.print(read_ec(tds_1_filter.Current(), 25));
   Serial.print(" PH1 ");
   Serial.print(read_ph(ph_1_filter.Current(), 25));
+  Serial.print(" T1 ");
+  Serial.print(temp_1_raw);
   Serial.print(" STATUS ");
   Serial.print(status);
   Serial.println();
@@ -241,7 +255,12 @@ void setup() {
   digitalWrite(BRASS_PUMP_OUT_PIN, LOW);
   digitalWrite(WATER_VALE_STEPPER_SW, HIGH);
   digitalWrite(PPUMP_1_STEPPER_SW, HIGH);
-  ppump_1_stepper.setSpeed(1000);
+  temp_sensore.begin();
+  temp_sensore.getAddress(temp_sensore_address, 0);
+  temp_sensore.setWaitForConversion(false);
+  temp_sensore.requestTemperaturesByAddress(temp_sensore_address);
+  last_temp_update = millis();
+  ppump_1_stepper.setSpeed(50);
   valve_stepper.setSpeed(1000);
   EEPROM.get(0, settings);
   if (settings.magic != SETTINGS_MAGIC) {
@@ -315,7 +334,7 @@ void loop() {
   // Peristatic pump stepper update
   if (status & S_PERISTALIC_PUMP_ON) {
     digitalWrite(PPUMP_1_STEPPER_SW, LOW);
-    ppump_1_stepper.step(1);
+    ppump_1_stepper.step(-1);
   } else if (status & S_PERISTALIC_PUMP_REV) {
     digitalWrite(PPUMP_1_STEPPER_SW, LOW);
     ppump_1_stepper.step(1);
@@ -345,6 +364,14 @@ void loop() {
     }
   //  Serial.println((float)ph_1_filter.Current() / 100.0);
   }
+  // Temp update
+  // > Avoid temperature sampling when stepper are on caus the dallas sensore are too slow
+  if (!(status & M_STEPPER_RUNNING) && millis() - last_temp_update > temp_conversion_duration) {
+    temp_1_raw = temp_sensore.getTempC(temp_sensore_address);
+    last_temp_update = millis();
+    temp_sensore.requestTemperaturesByAddress(temp_sensore_address);
+  }
+
   // Breath update
   if (status & S_BRONCHUS_STANDBY_FULL && millis() - breath_step >= BRONCHUS_STANDBY_FULL_DURATION) { // the bronche are full empty theme
     status &= ~S_BRONCHUS_STANDBY_FULL;
@@ -368,7 +395,4 @@ void loop() {
     breath_step = millis();
   }
   unsigned long int step_duration = millis() - step_begin;
-  if (step_duration > 5) {
-    Serial.println("Frame take too long !");
-  }
 }

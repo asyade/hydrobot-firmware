@@ -227,9 +227,6 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                         if self.status.contains(Status::TDS_CONNECTED) {
                             if let Some(sample) = tds_1 {
                                 self.to_gui(GuiEvent::TdsSensore(sample, self.tds_1_samples.status));
-                                if let Some(updated) = self.tds_1_samples.sample(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), sample) {
-                                    self.info(format!("TDS Status changed to {:?}", updated));
-                                }
                                 if let AnalyticStatus::Stable(current) = self.tds_1_samples.status {
                                     if self.ec_monitor_enabled {
                                         if let Some(duration) = self.tds_monitor.update(current) {
@@ -248,17 +245,14 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                         if self.status.contains(Status::PH_CONNECTED) {
                             if let Some(sample) = ph_1 {
                                 self.to_gui(GuiEvent::PhSensore(sample, self.ph_1_samples.status));
-                                if let Some(updated) = self.ph_1_samples.sample(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), sample) {
-                                    self.info(format!("PH Status changed to {:?}", updated));
-                                }
                                 if let AnalyticStatus::Stable(current) = self.ph_1_samples.status {
                                     if self.ph_monitor_enabled {
                                         if let Some(duration) = self.tds_monitor.update(current) {
                                             if self.add_osmosed_water_task.is_some() {
-                                                self.query("Can't lower TDS for now, the task is already pending !");
+                                                self.query("Can't lower PH for now, the task is already pending !");
                                             } else { 
                                                 self.add_osmosed_water_task = Some(AddOsmoseurWaterTask::new(duration));
-                                                self.query("Lowering TDS value (adding clean water)");
+                                                self.query("Lowering PH value (adding PH Down water)");
                                             }
                                         }
                                     }
