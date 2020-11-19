@@ -12,6 +12,10 @@
 #define TDS_1_PIN 11
 #define PH_1_PIN 9
 #define TEMP_PIN 40
+#define TDS_1_FILTER_CALIBRATION_DURATION 10000
+#define PH_1_FILTER_CALIBRATION_DURATION  10000
+#define TEMPERATURE_1_CALIBRATION_DURATION 2000
+
 #define TDS_FILTER_WEIGHT 5
 #define PH_FILTER_WEIGHT  2
 #define TEMP_RESOLUTION 12
@@ -49,16 +53,18 @@
 
 #define S_TDS_CONNECTED                   ((1 << 0))
 #define S_PH_CONNECTED                    ((1 << 2))
-#define S_OSMOS_SWITCH_OPENED             ((1 << 3))
-#define S_OSMOS_SWITCH_OPENING            ((1 << 4))
-#define S_OSMOS_SWITCH_CLOSING            ((1 << 5))
-#define S_OSMOS_SWITCH_CLOSED             ((1 << 6))
-#define S_PERISTALIC_PUMP_ON              ((1 << 7))
-#define S_PERISTALIC_PUMP_REV             ((1 << 8))
-#define S_BRONCHUS_STANDBY_FULL           ((1 << 9))
-#define S_BRONCHUS_STANDBY_SAMPLING       ((1 << 10))
-#define S_BRONCHUS_WAIT_FULL              ((1 << 11))
-#define S_BRONCHUS_WAIT_EMPTY             ((1 << 12))
+#define S_TEMPERATURE_CONNECTED           ((1 << 3))
+#define S_OSMOS_SWITCH_OPENED             ((1 << 4))
+#define S_OSMOS_SWITCH_OPENING            ((1 << 5))
+#define S_OSMOS_SWITCH_CLOSING            ((1 << 6))
+#define S_OSMOS_SWITCH_CLOSED             ((1 << 7))
+#define S_PERISTALIC_PUMP_ON              ((1 << 8))
+#define S_PERISTALIC_PUMP_REV             ((1 << 9))
+#define S_BRONCHUS_STANDBY_FULL           ((1 << 10))
+#define S_BRONCHUS_STANDBY_SAMPLING       ((1 << 11))
+#define S_BRONCHUS_WAIT_FULL              ((1 << 12))
+#define S_BRONCHUS_WAIT_EMPTY             ((1 << 13))
+
 
 #define M_STEPPER_RUNNING ((M_OSMOS_SWITCH_BUSY | S_PERISTALIC_PUMP_ON | S_PERISTALIC_PUMP_REV ))
 #define M_OSMOS_SWITCH_BUSY ((S_OSMOS_SWITCH_OPENING | S_OSMOS_SWITCH_CLOSING))
@@ -86,6 +92,7 @@ OneWire temp_bus(TEMP_PIN);
 DallasTemperature temp_sensore(&temp_bus);
 DeviceAddress temp_sensore_address;
 
+unsigned long int uptime = millis();
 unsigned long int last_tds_update = millis();
 unsigned long int last_ph_update = millis();
 unsigned long int last_temp_update = millis();
@@ -177,12 +184,18 @@ inline float read_ph(float ph, float temperature) {
 // Read filtred sensore values & status
 inline void G1() {
   Serial.print("OK G1");
-  Serial.print(" TDS1 ");
-  Serial.print(read_ec(tds_1_filter.Current(), 25));
-  Serial.print(" PH1 ");
-  Serial.print(read_ph(ph_1_filter.Current(), 25));
-  Serial.print(" T1 ");
-  Serial.print(temp_1_raw);
+  if (status & S_TDS_CONNECTED && millis() - uptime > TDS_1_FILTER_CALIBRATION_DURATION) {
+    Serial.print(" TDS1 ");
+    Serial.print(read_ec(tds_1_filter.Current(), 25));
+  }
+  if (status & S_PH_CONNECTED && millis() - uptime > PH_1_FILTER_CALIBRATION_DURATION) {
+    Serial.print(" PH1 ");
+    Serial.print(read_ph(ph_1_filter.Current(), 25));
+  }
+  if (status & S_TEMPERATURE_CONNECTED && millis() - uptime > TEMPERATURE_1_CALIBRATION_DURATION) {
+    Serial.print(" T1 ");
+    Serial.print(temp_1_raw);
+  }
   Serial.print(" STATUS ");
   Serial.print(status);
   Serial.println();
@@ -345,7 +358,11 @@ void loop() {
   if (millis() - last_tds_update >= TDS_SAMPLE_INTERVAL) {
     last_tds_update = millis();
     tds_1_raw = analogRead(TDS_1_PIN);
-    tds_1_filter.Filter(tds_1_raw);
+    if (millis() - uptime > TDS_1_FILTER_CALIBRATION_DURATION) {
+      tds_1_filter.Filter(tds_1_raw);
+    } else {
+      tds_1_filter.SetCurrent(tds_1_raw);
+    }
     if (tds_1_raw == 0) {
       status &= ~S_TDS_CONNECTED;
     } else {
@@ -356,7 +373,12 @@ void loop() {
   if (millis() - last_ph_update >= PH_SAMPLE_INTERVAL && status & S_BRONCHUS_STANDBY_SAMPLING) {
     last_ph_update = millis();
     ph_1_raw = 1023 - analogRead(PH_1_PIN);
-    ph_1_filter.Filter(map(ph_1_raw, 0, 1024, 0, 1400));
+    long ph = map(ph_1_raw, 0, 1024, 0, 1400);
+    if (millis() - uptime > PH_1_FILTER_CALIBRATION_DURATION) {
+      ph_1_filter.Filter(ph);
+    } else {
+      ph_1_filter.SetCurrent(ph);
+    }
     if (ph_1_raw == 0) {
       status &= ~S_PH_CONNECTED;
     } else {
@@ -370,6 +392,7 @@ void loop() {
     temp_1_raw = temp_sensore.getTempC(temp_sensore_address);
     last_temp_update = millis();
     temp_sensore.requestTemperaturesByAddress(temp_sensore_address);
+    status |= S_TEMPERATURE_CONNECTED;
   }
 
   // Breath update
