@@ -5,14 +5,13 @@ authors = ["MooreDev <corbeau.asya.dev@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-actix = "0.10.0"
-actix-web = "3.2.0"
+actix = {version = "0.10.0", features = [] }
 sled = "0.34.4"
 serialport = "3.3.0"
 actix-rt = "1.1.1"
 log = "0.4.11"
 pretty_env_logger = "0.4.0"
-tokio = "0.2.6"
+tokio = {version = "0.2.6", features = []}
 tui= "0.12.0"
 termion = "1.5.5"
 failure = "0.1.8"
