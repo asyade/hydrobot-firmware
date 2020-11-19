@@ -12,19 +12,19 @@ pub struct SerialDaemon {
 bitflags! {
     pub struct Status: u32 {
         const NONE                          = 0;
-        const TDS_CONNECTED               = ((1 << 0));
-        const TDS_2_CONNECTED               = ((1 << 1));
-        const PH_CONNECTED                = ((1 << 2));
-        const OSMOS_SWITCH_OPENED           = ((1 << 3));
-        const OSMOS_SWITCH_OPENING          = ((1 << 4));
-        const OSMOS_SWITCH_CLOSING          = ((1 << 5));
-        const OSMOS_SWITCH_CLOSED           = ((1 << 6));
-        const PERISTALIC_PUMP_ON            = ((1 << 7));
-        const PERISTALIC_PUMP_REV           = ((1 << 8));
-        const BRONCHUS_STANDBY_FULL         = ((1 << 9));
-        const BRONCHUS_STANDBY_SAMPLING     = ((1 << 10));
-        const BRONCHUS_WAIT_FULL            = ((1 << 11));
-        const BRONCHUS_WAIT_EMPTY           = ((1 << 12));
+        const TDS_CONNECTED                 = ((1 << 0));
+        const PH_CONNECTED                  = ((1 << 2));
+        const TEMPERATURE_CONNECTED         = ((1 << 3));
+        const OSMOS_SWITCH_OPENED           = ((1 << 4));
+        const OSMOS_SWITCH_OPENING          = ((1 << 5));
+        const OSMOS_SWITCH_CLOSING          = ((1 << 6));
+        const OSMOS_SWITCH_CLOSED           = ((1 << 7));
+        const PERISTALIC_PUMP_ON            = ((1 << 8));
+        const PERISTALIC_PUMP_REV           = ((1 << 9));
+        const BRONCHUS_STANDBY_FULL         = ((1 << 10));
+        const BRONCHUS_STANDBY_SAMPLING     = ((1 << 11));
+        const BRONCHUS_WAIT_FULL            = ((1 << 12));
+        const BRONCHUS_WAIT_EMPTY           = ((1 << 13));
     }
 }
 
@@ -79,6 +79,7 @@ pub enum SerialCommandResult {
     G1 {
         tds_1: Option<f64>,
         ph_1: Option<f64>,
+        t_1: Option<f64>,
         status: Option<Status>,
     },
     S0 {
@@ -107,6 +108,7 @@ impl SerialCommandResult {
             },
             "G1" => {
                 let mut tds_1: Option<f64> = None;
+                let mut t_1: Option<f64> = None;
                 let mut ph_1: Option<f64> = None;
                 let mut status: Option<Status> = None;
                 while let Some(part) = parts.next() {
@@ -117,6 +119,9 @@ impl SerialCommandResult {
                         "PH1" => {
                             ph_1 = Some(parts.next()?.parse().ok()?);
                         },
+                        "T1" => {
+                            t_1 = Some(parts.next()?.parse().ok()?);
+                        },
                         "STATUS" => {
                             let raw_status: u32 = parts.next()?.parse().ok()?;
                             status = Status::from_bits(raw_status);
@@ -124,7 +129,7 @@ impl SerialCommandResult {
                         _ => None?
                     }
                 }
-                Some((SerialCommandResult::G1{ tds_1, ph_1, status }, success))
+                Some((SerialCommandResult::G1{ tds_1, ph_1, t_1, status }, success))
             },
             cmd => {
                 warn!("Unknown command: {:?}", cmd);

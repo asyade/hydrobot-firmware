@@ -205,7 +205,7 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                         // self.listeners.get_mut("S1").map(|m| m.replace(e));
                     },
                     SerialCommandResult::G0 {..} => {},
-                    SerialCommandResult::G1 { tds_1, ph_1, status } => {
+                    SerialCommandResult::G1 { tds_1, ph_1, status, t_1 } => {
                         if let Some(status) = status {
                             if status.contains(Status::TDS_CONNECTED) && !self.status.contains(Status::TDS_CONNECTED) {
                                 self.info("TDS probe connected !");
@@ -241,7 +241,7 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                                 } 
                             }
                         }
-
+                        
                         if self.status.contains(Status::PH_CONNECTED) {
                             if let Some(sample) = ph_1 {
                                 self.to_gui(GuiEvent::PhSensore(sample, self.ph_1_samples.status));
@@ -258,6 +258,10 @@ impl Handler<SchedulerRequest> for SchedulerActor {
                                     }
                                 } 
                             }
+                        }
+
+                        if let Some(sample) = t_1 {
+                            self.to_gui(GuiEvent::TemperatureSensore(sample));
                         }
                     },
                     SerialCommandResult::Unknown{raw} => {

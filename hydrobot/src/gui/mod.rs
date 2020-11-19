@@ -20,6 +20,7 @@ mod widgets;
 use widgets::*;
 
 
+const MAX_TEMPERATURE_SAMPLES: usize = 256;
 const MAX_TDS_SAMPLES: usize = 256;
 const MAX_PH_SAMPLES: usize = 256;
 const MAX_LOG: usize = 256;
@@ -48,6 +49,7 @@ pub enum GuiEvent {
     Query(SystemTime, String),
     TdsSensore(f64, AnalyticStatus),
     PhSensore(f64, AnalyticStatus),
+    TemperatureSensore(f64),
     Status(Status),
 }
 
@@ -72,7 +74,9 @@ pub struct App {
     ph_status: AnalyticStatus,
     tds_buffer_trunc: Vec<(f64, f64)>,
     ph: f64,
+    temperature: f64,
     ph_buffer_trunc: Vec<(f64, f64)>,
+    temperature_buffer_trunc: Vec<(f64, f64)>,
     logs: VecDeque<(SystemTime, String, LogLevel)>,
     queries: VecDeque<(SystemTime, String)>,
 }
@@ -97,7 +101,8 @@ impl App {
                         Constraint::Percentage(20),
                         Constraint::Percentage(20),
                         Constraint::Percentage(20),
-                        Constraint::Percentage(60),
+                        Constraint::Percentage(20),
+                        Constraint::Percentage(20),
                     ]
                     .as_ref(),
                 )
@@ -105,6 +110,7 @@ impl App {
     
             widgets[0].render(&self, f, vchunk[0]);//tds
             widgets[1].render(&self, f, vchunk[1]);//ph
+            widgets[2].render(&self, f, vchunk[2]);//ph
 
             let control_column = Layout::default()
                 .direction(Direction::Horizontal)
@@ -112,17 +118,17 @@ impl App {
                     Constraint::Percentage(20),
                     Constraint::Percentage(80),
                 ]
-                .as_ref()).split(vchunk[2]);
-            widgets[2].render(&self, f, control_column[0]);//control
-            widgets[3].render(&self, f, control_column[1]);//control details
+                .as_ref()).split(vchunk[3]);
+            widgets[3].render(&self, f, control_column[0]);//control
+            widgets[4].render(&self, f, control_column[1]);//control details
             let logs_column = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
                     Constraint::Percentage(50),
                     Constraint::Percentage(50),
-                ].as_ref()).split(vchunk[3]);
-            widgets[4].render(&self, f, logs_column[0]);//feedback
-            widgets[5].render(&self, f, logs_column[1]);//log
+                ].as_ref()).split(vchunk[4]);
+            widgets[5].render(&self, f, logs_column[0]);//feedback
+            widgets[6].render(&self, f, logs_column[1]);//log
         })?;
         Ok(())
     }
@@ -162,6 +168,7 @@ impl GuiActor {
             widgets: vec![
                 Box::from(TdsWidget::new()),
                 Box::from(PhWidget::new()),
+                Box::from(TemperatureWidget::new()),
                 Box::from(ControlerWidget::new()),
                 Box::from(ControlerDetailsWidget::new(&store)),
                 Box::from(FeedBackWidget::new()),
@@ -170,6 +177,7 @@ impl GuiActor {
             current_selection: 2,
             terminal,
             app: App {
+                temperature: 0.0,
                 selected_setting_categorie: SettingCategorie::General,
                 focused: false,
                 scheduler,
@@ -182,6 +190,7 @@ impl GuiActor {
                 logs: VecDeque::new(),
                 queries: VecDeque::new(),
                 tds_buffer_trunc: Vec::with_capacity(MAX_TDS_SAMPLES),
+                temperature_buffer_trunc: Vec::with_capacity(MAX_TEMPERATURE_SAMPLES),
                 ph_buffer_trunc: Vec::with_capacity(MAX_PH_SAMPLES),
             }
         }
@@ -193,6 +202,13 @@ impl Handler<GuiEvent> for GuiActor {
     
     fn handle(&mut self, msg: GuiEvent, ctx: &mut Self::Context) -> Self::Result {
         match msg {
+            GuiEvent::TemperatureSensore(temperature) => {
+                self.app.temperature_buffer_trunc.push((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as f64, temperature));
+                if self.app.temperature_buffer_trunc.len() > MAX_TEMPERATURE_SAMPLES {
+                    self.app.temperature_buffer_trunc.remove(0);
+                }
+                self.app.temperature = temperature;
+            }
             GuiEvent::Status(status) => {
                 self.app.status = status;
             },

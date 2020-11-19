@@ -10,3 +10,5 @@ mod tds;
 pub use tds::*;
 mod ph;
 pub use ph::*;
+mod temperature;
+pub use temperature::*;
