@@ -64,6 +64,7 @@
 #define S_BRONCHUS_STANDBY_SAMPLING       ((1 << 11))
 #define S_BRONCHUS_WAIT_FULL              ((1 << 12))
 #define S_BRONCHUS_WAIT_EMPTY             ((1 << 13))
+#define S_BREATHING                       ((1 << 14))
 
 
 #define M_STEPPER_RUNNING ((M_OSMOS_SWITCH_BUSY | S_PERISTALIC_PUMP_ON | S_PERISTALIC_PUMP_REV ))
@@ -396,26 +397,35 @@ void loop() {
   }
 
   // Breath update
-  if (status & S_BRONCHUS_STANDBY_FULL && millis() - breath_step >= BRONCHUS_STANDBY_FULL_DURATION) { // the bronche are full empty theme
-    status &= ~S_BRONCHUS_STANDBY_FULL;
-    status |= S_BRONCHUS_STANDBY_SAMPLING;
-    breath_step = millis();
-  } else if (status & S_BRONCHUS_STANDBY_SAMPLING && millis() - breath_step >= BRONCHUS_STANDBY_SAMPLING_DURATION) { // the bronche are full empty theme
-    status &= ~S_BRONCHUS_STANDBY_SAMPLING;
-    status |= S_BRONCHUS_WAIT_EMPTY;
-    breath_step = millis();
-    digitalWrite(BRASS_PUMP_OUT_PIN, HIGH);
-  } else if (status & S_BRONCHUS_WAIT_EMPTY && millis() - breath_step >= BRONCHUS_EMPTY_DURATION) {
-    status &= ~S_BRONCHUS_WAIT_EMPTY;
-    status |= S_BRONCHUS_WAIT_FULL;
-    digitalWrite(BRASS_PUMP_OUT_PIN, LOW);
-    digitalWrite(BRASS_PUMP_IN_PIN, HIGH);
-    breath_step = millis();
-  } else if (status & S_BRONCHUS_WAIT_FULL && millis() - breath_step >= BRONCHUS_FILL_DURATION) {
-    status &= ~S_BRONCHUS_WAIT_FULL;
-    status |= S_BRONCHUS_STANDBY_FULL;
-    digitalWrite(BRASS_PUMP_IN_PIN, LOW);
-    breath_step = millis();
+  if (status & S_BREATHING) {
+    if (status & S_BRONCHUS_STANDBY_FULL && millis() - breath_step >= BRONCHUS_STANDBY_FULL_DURATION) { // the bronche are full empty theme
+      status &= ~S_BRONCHUS_STANDBY_FULL;
+      status |= S_BRONCHUS_STANDBY_SAMPLING;
+      breath_step = millis();
+    } else if (status & S_BRONCHUS_STANDBY_SAMPLING && millis() - breath_step >= BRONCHUS_STANDBY_SAMPLING_DURATION) { // the bronche are full empty theme
+      status &= ~S_BRONCHUS_STANDBY_SAMPLING;
+      status |= S_BRONCHUS_WAIT_EMPTY;
+      breath_step = millis();
+      digitalWrite(BRASS_PUMP_OUT_PIN, HIGH);
+    } else if (status & S_BRONCHUS_WAIT_EMPTY && millis() - breath_step >= BRONCHUS_EMPTY_DURATION) {
+      status &= ~S_BRONCHUS_WAIT_EMPTY;
+      status |= S_BRONCHUS_WAIT_FULL;
+      digitalWrite(BRASS_PUMP_OUT_PIN, LOW);
+      digitalWrite(BRASS_PUMP_IN_PIN, HIGH);
+      breath_step = millis();
+    } else if (status & S_BRONCHUS_WAIT_FULL && millis() - breath_step >= BRONCHUS_FILL_DURATION) {
+      status &= ~S_BRONCHUS_WAIT_FULL;
+      status |= S_BRONCHUS_STANDBY_FULL;
+      digitalWrite(BRASS_PUMP_IN_PIN, LOW);
+      breath_step = millis();
+    }
+  } else {
+      status &= ~S_BRONCHUS_WAIT_FULL;
+      status &= ~S_BRONCHUS_WAIT_EMPTY;
+      status &= ~S_BRONCHUS_STANDBY_SAMPLING;
+      status |= S_BRONCHUS_STANDBY_FULL;
+      digitalWrite(BRASS_PUMP_IN_PIN, LOW);
+      digitalWrite(BRASS_PUMP_OUT_PIN, LOW);
   }
   unsigned long int step_duration = millis() - step_begin;
 }
