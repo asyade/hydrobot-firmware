@@ -25,6 +25,7 @@ bitflags! {
         const BRONCHUS_STANDBY_SAMPLING     = ((1 << 11));
         const BRONCHUS_WAIT_FULL            = ((1 << 12));
         const BRONCHUS_WAIT_EMPTY           = ((1 << 13));
+        const BREATHING                     = ((1 << 14));
     }
 }
 
@@ -95,6 +96,7 @@ pub enum SerialCommandResult {
 
 impl SerialCommandResult {
     fn from_string(val: &str) -> Option<(SerialCommandResult, bool)> {
+        info!("Receive {:?}", val);
         let mut parts =val.split(" ").into_iter().map(|e| e.trim().to_uppercase());
         let success = parts.next()? == "OK";
         match parts.next()?.as_str() {
